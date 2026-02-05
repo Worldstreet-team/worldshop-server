@@ -1,0 +1,47 @@
+{
+  "name": "important-modules",
+  "version": "1.0.0",
+  "description": "A modern Node.js API template built with TypeScript, Express, MongoDB, Winston logging, and Sentry error monitoring using functional programming patterns.",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run generate && tsc && npm run sentry:sourcemaps",
+    "start": "cross-env NODE_ENV=prod node dist/server.js",
+    "prod": "npm run build && cross-env NODE_ENV=prod npm start",
+    "dev": "npm run generate && nodemon --watch src -e ts --exec ts-node src/server.ts",
+    "lint": "eslint src/**/*.ts",
+    "migrate:deploy": "npx prisma migrate deploy",
+    "migrate:dev": "npx prisma migrate dev --name $(date +%Y%m%d_%H%M%S)",
+    "studio": "npx prisma studio",
+    "generate": "npx prisma generate"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^25.0.10",
+    "eslint": "^9.39.2",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.8.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19",
+    "@sentry/node": "^10.36.0",
+    "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "http-errors": "^2.0.1",
+    "mongoose": "^9.1.5",
+    "morgan": "^1.10.1",
+    "prisma": "6.19",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  }
+}
