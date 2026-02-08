@@ -5,6 +5,7 @@ import type { JwtPayload } from '../types/express';
 /**
  * Get or create a user profile.
  * On first access, creates a profile from the JWT payload (external auth data).
+ * Also updates empty names from JWT if available.
  */
 export async function getOrCreateProfile(user: JwtPayload) {
   if (!user.id) {
@@ -24,6 +25,21 @@ export async function getOrCreateProfile(user: JwtPayload) {
         lastName: user.lastName || '',
       },
     });
+  } else {
+    // Update profile with JWT data if names are empty but JWT has them
+    const needsUpdate =
+      (!profile.firstName && user.firstName) ||
+      (!profile.lastName && user.lastName);
+
+    if (needsUpdate) {
+      profile = await prisma.userProfile.update({
+        where: { userId: user.id },
+        data: {
+          firstName: profile.firstName || user.firstName || 'User',
+          lastName: profile.lastName || user.lastName || '',
+        },
+      });
+    }
   }
 
   return profile;
