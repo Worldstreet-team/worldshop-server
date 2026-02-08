@@ -7,6 +7,10 @@ import type { JwtPayload } from '../types/express';
  * On first access, creates a profile from the JWT payload (external auth data).
  */
 export async function getOrCreateProfile(user: JwtPayload) {
+  if (!user.id) {
+    throw new Error('User ID is required to get or create a profile');
+  }
+
   let profile = await prisma.userProfile.findUnique({
     where: { userId: user.id },
   });
@@ -15,9 +19,9 @@ export async function getOrCreateProfile(user: JwtPayload) {
     profile = await prisma.userProfile.create({
       data: {
         userId: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        email: user.email || '',
+        firstName: user.firstName || 'User',
+        lastName: user.lastName || '',
       },
     });
   }
