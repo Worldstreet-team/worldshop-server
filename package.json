@@ -9,10 +9,10 @@
     "prod": "npm run build && cross-env NODE_ENV=prod npm start",
     "dev": "npm run generate && nodemon --watch src -e ts --exec ts-node src/server.ts",
     "lint": "eslint src/**/*.ts",
-    "migrate:deploy": "npx prisma migrate deploy",
-    "migrate:dev": "npx prisma migrate dev --name $(date +%Y%m%d_%H%M%S)",
-    "studio": "npx prisma studio",
-    "generate": "npx prisma generate",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev --name $(date +%Y%m%d_%H%M%S)",
+    "studio": "prisma studio",
+    "generate": "prisma generate",
     "sentry:sourcemaps": "sentry-cli sourcemaps inject --org nnaemeka-bethrand --project worldshop-server ./dist && sentry-cli sourcemaps upload --org nnaemeka-bethrand --project worldshop-server ./dist"
   },
   "keywords": [],
@@ -33,7 +33,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@prisma/client": "6.19",
+    "@prisma/client": "6.19.2",
     "@sentry/cli": "^2.58.4",
     "@sentry/node": "^10.38.0",
     "cookie-parser": "^1.4.7",
@@ -46,7 +46,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
     "morgan": "^1.10.1",
-    "prisma": "6.19",
+    "prisma": "6.19.2",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
     "zod": "^4.3.6"
