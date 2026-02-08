@@ -1,20 +1,23 @@
-# WorldStreet eCommerce - Backend API
+# WorldStreet Shop - Backend API
 
-A comprehensive eCommerce backend API built with Node.js, TypeScript, Express, Prisma, and MongoDB. Features complete product catalog, cart, checkout, orders, payments (Paystack), and image management (Cloudinary).
+Backend API for the WorldStreet Shop ecommerce platform. Built with Node.js, TypeScript, Express, Prisma, and MongoDB. This service currently includes auth middleware, profile management, and core platform infrastructure (logging, error handling, rate limiting). More ecommerce services are being added incrementally.
+
+## Status
+
+- ✅ Health check
+- ✅ Auth middleware (JWT verification, role checks)
+- ✅ Profile service (`GET /api/v1/profile`, `PATCH /api/v1/profile`)
+- 🔜 Products, Categories, Cart, Checkout, Orders, Payments
 
 ## Features
 
 - ✅ **TypeScript** - Full type safety
 - ✅ **Express.js** - Fast web framework
 - ✅ **Prisma ORM** - Type-safe database client with MongoDB support
-- ✅ **MongoDB** - NoSQL database with 16 data models
-- ✅ **Cloudinary** - Cloud-based image storage and management
-- ✅ **Paystack** - Secure payment processing integration
+- ✅ **MongoDB** - NoSQL database
 - ✅ **JWT Authentication** - WorldStreet Identity service integration
 - ✅ **Functional Programming** - No class components, pure functions
 - ✅ **Error Handling** - Centralized error handling with `catchAsync` and `http-errors`
-- ✅ **Inventory Management** - Real-time stock tracking with atomic operations
-- ✅ **Order State Machine** - Robust order lifecycle management
 - ✅ **Health Check** - Server and database monitoring endpoint
 - ✅ **ESLint & Prettier** - Code formatting and linting
 - ✅ **Hot Reload** - Development server with nodemon

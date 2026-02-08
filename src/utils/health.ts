@@ -38,7 +38,11 @@ export const healthCheck = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      message: 'Test API is healthy', //Prefix 'Test' with the server's actual name; 'RAHA'
+      message: 'WorldStreet Shop API is healthy',
+      api: {
+        name: 'WorldStreet Shop API',
+        version: 'v1',
+      },
       timestamp: new Date().toISOString(),
       uptime: formatUptime(Math.floor(process.uptime())),
       database: dbStatus,
