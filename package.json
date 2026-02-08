@@ -12,7 +12,8 @@
     "migrate:deploy": "npx prisma migrate deploy",
     "migrate:dev": "npx prisma migrate dev --name $(date +%Y%m%d_%H%M%S)",
     "studio": "npx prisma studio",
-    "generate": "npx prisma generate"
+    "generate": "npx prisma generate",
+    "sentry:sourcemaps": "sentry-cli sourcemaps inject --org nnaemeka-bethrand --project worldshop-server ./dist && sentry-cli sourcemaps upload --org nnaemeka-bethrand --project worldshop-server ./dist"
   },
   "keywords": [],
   "author": "",
@@ -33,7 +34,8 @@
   },
   "dependencies": {
     "@prisma/client": "6.19",
-    "@sentry/node": "^10.36.0",
+    "@sentry/cli": "^2.58.4",
+    "@sentry/node": "^10.38.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "cross-env": "^10.1.0",
