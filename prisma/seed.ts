@@ -16,6 +16,8 @@ async function main() {
   // ── Clean existing data ─────────────────────────────────────
   await prisma.productVariant.deleteMany();
   await prisma.product.deleteMany();
+  // Delete child categories first, then parent categories (self-referential relation)
+  await prisma.category.deleteMany({ where: { parentId: { not: null } } });
   await prisma.category.deleteMany();
   console.log('  ✓ Cleared existing products, variants & categories');
 
