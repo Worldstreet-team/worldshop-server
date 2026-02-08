@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 7, 2026  
-**Version:** 1.0.0  
+**Last Updated:** February 8, 2026  
+**Version:** 0.2.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -64,7 +64,7 @@
 
 ### Configuration Layer (`/src/configs/`)
 
-- **envConfig.ts** - Environment variable management
+- **envConfig.ts** - Environment variable management (incl. JWT secrets, CLIENT_URL)
 - **prismaConfig.ts** - Prisma client singleton with connection pooling
 - **loggerConfig.ts** - Winston logger configuration with daily rotation
 - **sentryConfig.ts** - Sentry error monitoring setup
@@ -80,6 +80,9 @@
 - **errorHandler.ts** - Global error handling with environment-specific responses
 - **catchAll404Errors.ts** - 404 error handler
 - **rateLimitMiddleware.ts** - Request rate limiting
+- **auth.middleware.ts** - JWT authentication (`requireAuth`, `optionalAuth`)
+- **admin.middleware.ts** - Admin role authorization (`requireAdmin`)
+- **validate.middleware.ts** - Zod request validation (`validate`, `validateQuery`)
 
 ### Application Structure
 
@@ -138,14 +141,52 @@
 - [x] Task controller with CRUD operations
 - [x] Example of functional patterns
 
-### Phase 4: Models Structure
+### Phase 4: Authentication & Authorization (Service 1) ✅
 
-- [x] **Product Model** (Mongoose schema - needs Prisma migration)
-  - Product variants support
-  - Image management
-  - Category relationships
-  - Stock management
-  - Approval workflow
+- [x] **JWT Authentication**
+  - [x] Integrate with WorldStreet Identity service
+  - [x] JWT token verification middleware (`requireAuth`, `optionalAuth`)
+  - [x] Cookie-parser for reading HttpOnly JWT cookies
+  - [x] Role-based access control (RBAC)
+
+- [x] **User Roles**
+  - [x] Customer role
+  - [x] Admin role
+
+- [x] **Protected Routes**
+  - [x] Auth middleware for protected endpoints
+  - [x] Admin middleware for admin endpoints
+
+- [x] **Validation Middleware**
+  - [x] Zod validation for request body (`validate`)
+  - [x] Zod validation for query params (`validateQuery`)
+
+- [x] **Dependencies Added**
+  - [x] jsonwebtoken, @types/jsonwebtoken
+  - [x] zod
+  - [x] cookie-parser, @types/cookie-parser
+
+### Phase 5: User Profile (Service 2) ✅
+
+- [x] **UserProfile Prisma model**
+  - [x] userId, email, firstName, lastName, phone, avatar, dateOfBirth, gender
+  - [x] Gender enum (MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY)
+
+- [x] **Profile Service**
+  - [x] Auto-create profile on first access (`getOrCreateProfile`)
+  - [x] Profile update with Zod validation (`updateProfileSchema`)
+
+- [x] **Profile Endpoints**
+  - [x] `GET /api/v1/profile` — fetch authenticated user's profile
+  - [x] `PATCH /api/v1/profile` — update profile fields
+
+- [x] **CORS Configuration**
+  - [x] `shop.worldstreetgold.com` + localhost dev origins
+  - [x] `credentials: true`, `X-Session-ID` header allowed
+
+- [x] **Frontend Integration**
+  - [x] Profile page connected to real API
+  - [x] Profile auto-creates from auth user data on first visit
 
 ---
 
@@ -172,7 +213,7 @@
 
 - [ ] **ProductImage** - Product images
   - [ ] id, productId, url, altText, sortOrder
-  - [ ] isDefault, cloudinaryId
+  - [ ] isDefault, cloudflareId
   - [ ] Relationship: Product (one-to-many)
 
 - [ ] **ProductVariant** - Size/color/style variants
@@ -271,7 +312,7 @@
   - [ ] timestamps
 
 - [ ] **ReviewImage** - Review images
-  - [ ] id, reviewId, url, cloudinaryId
+  - [ ] id, reviewId, url, cloudflareId
 
 #### User-Related Models
 
@@ -300,22 +341,22 @@
   - [ ] isApproved, isActive
   - [ ] Relationship: Products, User
 
-### Phase 7: Authentication & Authorization
+### Phase 7: Authentication & Authorization ✅ COMPLETED
 
-- [ ] **JWT Authentication**
-  - [ ] Integrate with WorldStreet Identity service
-  - [ ] JWT token validation middleware
-  - [ ] Refresh token flow
-  - [ ] Role-based access control (RBAC)
+- [x] **JWT Authentication**
+  - [x] Integrate with WorldStreet Identity service
+  - [x] JWT token validation middleware
+  - [x] Refresh token flow
+  - [x] Role-based access control (RBAC)
 
-- [ ] **User Roles**
-  - [ ] Customer role
-  - [ ] Admin role
+- [x] **User Roles**
+  - [x] Customer role
+  - [x] Admin role
   - [ ] Vendor role (future)
 
-- [ ] **Protected Routes**
-  - [ ] Auth middleware for protected endpoints
-  - [ ] Admin middleware for admin endpoints
+- [x] **Protected Routes**
+  - [x] Auth middleware for protected endpoints
+  - [x] Admin middleware for admin endpoints
   - [ ] Vendor middleware for vendor endpoints
 
 ### Phase 8: Product Management API
@@ -345,7 +386,7 @@
 - [ ] `POST /api/admin/products` - Create product
 - [ ] `PUT /api/admin/products/:id` - Update product
 - [ ] `DELETE /api/admin/products/:id` - Delete product
-- [ ] `POST /api/admin/products/:id/images` - Upload images (Cloudinary)
+- [ ] `POST /api/admin/products/:id/images` - Upload images (Cloudflare)
 - [ ] `DELETE /api/admin/products/:id/images/:imageId` - Delete image
 - [ ] `POST /api/admin/products/:id/variants` - Add variant
 - [ ] `PUT /api/admin/products/:id/variants/:variantId` - Update variant
@@ -471,9 +512,9 @@
 - [ ] Search suggestions/autocomplete
 - [ ] Search analytics
 
-### Phase 19: Image Management (Cloudinary)
+### Phase 19: Image Management (Cloudflare)
 
-- [ ] Image upload service
+- [ ] Image upload service (Cloudflare R2 / Cloudflare Images)
 - [ ] Image transformation (resize, crop, optimize)
 - [ ] Image deletion
 - [ ] Multiple image upload
@@ -577,8 +618,9 @@ worldshop-server/
 │   │   ├── loggerConfig.ts    # Winston logging setup
 │   │   ├── sentryConfig.ts    # Sentry error monitoring
 │   │   └── rateLimitConfig.ts # Rate limiting config
-│   ├── controllers/           # Request handlers (TO BE BUILT)
+│   ├── controllers/           # Request handlers
 │   │   ├── taskController.ts  # ✅ Sample task controller
+│   │   ├── profile.controller.ts       # ✅ Profile endpoints
 │   │   ├── products.controller.ts      # ⏳ Product endpoints
 │   │   ├── categories.controller.ts    # ⏳ Category endpoints
 │   │   ├── cart.controller.ts          # ⏳ Cart operations
@@ -589,15 +631,17 @@ worldshop-server/
 │   │   ├── addresses.controller.ts     # ⏳ Address management
 │   │   ├── wishlist.controller.ts      # ⏳ Wishlist operations
 │   │   └── admin/                      # ⏳ Admin controllers
-│   ├── services/              # Business logic (TO BE BUILT)
+│   ├── services/              # Business logic
+│   │   ├── profile.service.ts          # ✅ Profile operations
 │   │   ├── products.service.ts         # ⏳ Product business logic
 │   │   ├── cart.service.ts             # ⏳ Cart operations
 │   │   ├── inventory.service.ts        # ⏳ Inventory management
 │   │   ├── orders.service.ts           # ⏳ Order processing
 │   │   ├── payments.service.ts         # ⏳ Payment integration
-│   │   └── cloudinary.service.ts       # ⏳ Image upload
+│   │   └── cloudflare.service.ts       # ⏳ Image upload (Cloudflare)
 │   ├── routes/                # Route definitions
 │   │   ├── taskRoutes.ts      # ✅ Sample task routes
+│   │   ├── profile.routes.ts           # ✅ Profile routes
 │   │   ├── products.routes.ts          # ⏳ Product routes
 │   │   ├── categories.routes.ts        # ⏳ Category routes
 │   │   ├── cart.routes.ts              # ⏳ Cart routes
@@ -607,8 +651,9 @@ worldshop-server/
 │   │   ├── errorHandler.ts    # ✅ Global error handler
 │   │   ├── catchAll404Errors.ts # ✅ 404 handler
 │   │   ├── rateLimitMiddleware.ts # ✅ Rate limiting
-│   │   ├── auth.middleware.ts          # ⏳ JWT auth
-│   │   └── admin.middleware.ts         # ⏳ Admin guard
+│   │   ├── auth.middleware.ts          # ✅ JWT auth (requireAuth, optionalAuth)
+│   │   ├── admin.middleware.ts         # ✅ Admin guard (requireAdmin)
+│   │   └── validate.middleware.ts      # ✅ Zod validation (validate, validateQuery)
 │   ├── models/                # Data models
 │   │   ├── Task.ts            # ✅ Sample task model
 │   │   └── productModel.ts    # 🔄 Mongoose (needs Prisma migration)
@@ -638,16 +683,18 @@ Legend:
 
 ### Current Endpoints (✅ Implemented)
 
-| Method   | Endpoint            | Description  | Auth     |
-| -------- | ------------------- | ------------ | -------- |
-| `GET`    | `/`                 | API status   | Public   |
-| `GET`    | `/health`           | Health check | Public   |
-| `GET`    | `/api/v1/tasks`     | List tasks   | Public   |
-| `POST`   | `/api/v1/tasks`     | Create task  | Public   |
-| `GET`    | `/api/v1/tasks/:id` | Get task     | Public   |
-| `PUT`    | `/api/v1/tasks/:id` | Update task  | Public   |
-| `DELETE` | `/api/v1/tasks/:id` | Delete task  | Public   |
-| `GET`    | `/debug-sentry`     | Test Sentry  | Dev Only |
+| Method   | Endpoint            | Description          | Auth     |
+| -------- | ------------------- | -------------------- | -------- |
+| `GET`    | `/`                 | API status           | Public   |
+| `GET`    | `/health`           | Health check         | Public   |
+| `GET`    | `/api/v1/tasks`     | List tasks           | Public   |
+| `POST`   | `/api/v1/tasks`     | Create task          | Public   |
+| `GET`    | `/api/v1/tasks/:id` | Get task             | Public   |
+| `PUT`    | `/api/v1/tasks/:id` | Update task          | Public   |
+| `DELETE` | `/api/v1/tasks/:id` | Delete task          | Public   |
+| `GET`    | `/api/v1/profile`   | Get user profile     | Auth     |
+| `PATCH`  | `/api/v1/profile`   | Update user profile  | Auth     |
+| `GET`    | `/debug-sentry`     | Test Sentry          | Dev Only |
 
 ### Planned Endpoints (⏳ To Be Built)
 
@@ -731,6 +778,10 @@ Legend:
 1. **Task** - Sample CRUD model
    - id, title, description, completed, createdAt, updatedAt
 
+2. **UserProfile** - User profile data (Service 2)
+   - id, userId, email, firstName, lastName, phone, avatar, dateOfBirth, gender
+   - Gender enum (MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY)
+
 ### Legacy Models (🔄 Needs Prisma Migration)
 
 2. **Product** (Mongoose - needs conversion to Prisma)
@@ -744,7 +795,7 @@ Legend:
 The following 16+ models need to be added to `prisma/schema.prisma`:
 
 3. **Product** - Main product catalog
-4. **ProductImage** - Product images with Cloudinary IDs
+4. **ProductImage** - Product images with Cloudflare IDs
 5. **ProductVariant** - Size, color, style variants
 6. **Category** - Hierarchical categories with parent/children
 7. **Brand** - Product brands
@@ -772,27 +823,25 @@ The following 16+ models need to be added to `prisma/schema.prisma`:
 
 ### Immediate Priorities (Week 1-2)
 
-1. **Complete Prisma Schema** - Define all 16+ models in `schema.prisma`
-2. **Run Migrations** - Apply schema to MongoDB
-3. **Auth Middleware** - Implement JWT authentication with WorldStreet Identity
-4. **Product API** - Build product CRUD endpoints
-5. **Category API** - Build category management
+1. **Products API (Service 3)** - Product schema, CRUD, filtering, pagination, search
+2. **Categories API (Service 4)** - Category schema, hierarchy, product relations
+3. **Cart API (Service 5)** - Guest session + auth cart, merge on login
+4. **Frontend Integration** - Connect client product/category pages to real APIs
 
 ### Short Term (Week 3-4)
 
-- Implement Cart API with session support
-- Build Checkout flow
-- Integrate Paystack payment
-- Order management system
-- Inventory tracking
+- Addresses API (Service 6)
+- Orders & Checkout (Service 7)
+- Paystack payment integration (Service 8)
+- Cloudflare image upload service
 
 ### Medium Term (Month 2)
 
-- Review system
-- Wishlist functionality
-- Address management
-- Admin panel APIs
-- Cloudinary image upload
+- Reviews (Service 9)
+- Wishlist (Service 10)
+- Admin Products & Categories (Services 11, 14)
+- Admin Inventory & Orders (Services 12, 13)
+- Admin Dashboard (Service 15)
 
 ### Long Term (Month 3+)
 
@@ -820,10 +869,12 @@ DATABASE_URL="mongodb+srv://..."  # MongoDB connection string (Prisma)
 JWT_SECRET=your-jwt-secret
 IDENTITY_SERVICE_URL=https://identity.worldstreet.com
 
-# Cloudinary (Image Upload)
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
+# Cloudflare (Media Storage)
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_R2_ACCESS_KEY_ID=your-access-key
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-secret-key
+CLOUDFLARE_R2_BUCKET_NAME=your-bucket-name
+CLOUDFLARE_R2_PUBLIC_URL=https://your-bucket.r2.dev
 
 # Paystack (Payment Gateway)
 PAYSTACK_SECRET_KEY=sk_test_xxx
@@ -868,7 +919,7 @@ npm run lint              # Run ESLint
 1. **MongoDB Atlas** - Database hosting
 2. **WorldStreet Identity** - User authentication and management
 3. **Paystack** - Payment processing (Nigerian market)
-4. **Cloudinary** - Image hosting and CDN
+4. **Cloudflare** - Image hosting, CDN, and media storage (R2 / Images)
 
 ### Optional Services
 
@@ -884,8 +935,9 @@ npm run lint              # Run ESLint
 | Category                | Status         | Progress           |
 | ----------------------- | -------------- | ------------------ |
 | **Infrastructure**      | ✅ Complete    | 100%               |
-| **Database Schema**     | 🔄 In Progress | 10% (1/16+ models) |
-| **Authentication**      | ⏳ Not Started | 0%                 |
+| **Database Schema**     | 🔄 In Progress | 15% (2/16+ models) |
+| **Authentication**      | ✅ Complete    | 100%               |
+| **Profile API**         | ✅ Complete    | 100%               |
 | **Product API**         | ⏳ Not Started | 0%                 |
 | **Cart API**            | ⏳ Not Started | 0%                 |
 | **Order API**           | ⏳ Not Started | 0%                 |
@@ -894,7 +946,7 @@ npm run lint              # Run ESLint
 | **Testing**             | ⏳ Not Started | 0%                 |
 | **Deployment**          | ⏳ Not Started | 0%                 |
 
-**Overall Project Completion:** ~5%
+**Overall Project Completion:** ~15%
 
 ---
 
@@ -922,13 +974,14 @@ When adding features:
 - [Express.js Documentation](https://expressjs.com/)
 - [TypeScript Documentation](https://www.typescriptlang.org/docs/)
 - [Paystack API Docs](https://paystack.com/docs/api/)
-- [Cloudinary API Docs](https://cloudinary.com/documentation)
+- [Cloudflare R2 Docs](https://developers.cloudflare.com/r2/)
+- [Cloudflare Images Docs](https://developers.cloudflare.com/images/)
 - [Winston Logging](https://github.com/winstonjs/winston)
 - [Sentry Node.js](https://docs.sentry.io/platforms/node/)
 
 ---
 
-**Status:** 🟡 Early Development  
+**Status:** 🟡 Active Development  
 **Build Status:** ✅ Passing  
 **Database:** 🟢 Connected  
-**Last Updated:** February 7, 2026
+**Last Updated:** February 8, 2026

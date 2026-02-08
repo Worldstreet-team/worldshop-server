@@ -5,6 +5,8 @@ import cookieParser from 'cookie-parser';
 
 import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
+import productRoutes from './routes/product.routes';
+import categoryRoutes from './routes/category.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
@@ -52,6 +54,8 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
     baseUrl: '/api/v1',
     endpoints: {
       profile: '/api/v1/profile',
+      products: '/api/v1/products',
+      categories: '/api/v1/categories',
     },
   });
 });
@@ -59,6 +63,8 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
 app.use('/health', healthCheck);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/profile', profileRoutes);
+app.use('/api/v1/products', productRoutes);
+app.use('/api/v1/categories', categoryRoutes);
 
 app.get('/debug-sentry', (req, res) => {
   throw new Error('My first Sentry error!');

@@ -49,3 +49,88 @@ model UserProfile {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
+
+// ============================================
+// CATEGORIES
+// Hierarchical product categories with self-referential parent/child.
+// ============================================
+
+model Category {
+  id          String     @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  slug        String     @unique
+  description String?
+  image       String?
+  icon        String?
+
+  parentId    String?    @db.ObjectId
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children    Category[] @relation("CategoryTree")
+
+  products    Product[]
+
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
+}
+
+// ============================================
+// PRODUCTS
+// Core product catalog with images, variants, and category relation.
+// All prices stored in NGN (₦).
+// ============================================
+
+model Product {
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  slug          String           @unique
+  description   String
+  shortDesc     String?
+  stockKeepingUnit String?       @unique
+  basePrice     Float            // Price in NGN (₦)
+  salePrice     Float?
+  type          String           @default("PHYSICAL")
+
+  categoryId    String?          @db.ObjectId
+  category      Category?        @relation(fields: [categoryId], references: [id])
+
+  brand         String?
+  tags          String[]
+  images        Json       @default("[]") // Array of { url, alt, isPrimary, sortOrder, cloudflareId }
+
+  variants      ProductVariant[]
+
+  avgRating     Float            @default(0)
+  reviewCount   Int              @default(0)
+  stock         Int              @default(0)
+  lowStockThreshold Int          @default(10)
+
+  isActive      Boolean          @default(true)
+  isFeatured    Boolean          @default(false)
+  isNewArrival  Boolean          @default(true)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model ProductVariant {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId      String   @db.ObjectId
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockKeepingUnit String? @unique
+  name           String
+  attributes     Json     // { size: "XL", color: "Red" }
+  price          Float?   // Override price in NGN
+  compareAtPrice Float?
+  stock          Int      @default(0)
+  isActive       Boolean  @default(true)
+
+  @@index([productId])
+}

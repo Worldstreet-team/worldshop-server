@@ -13,9 +13,18 @@
     "migrate:dev": "npx prisma@6.19.2 migrate dev --name $(date +%Y%m%d_%H%M%S)",
     "studio": "npx prisma@6.19.2 studio",
     "generate": "npx prisma@6.19.2 generate",
+    "seed": "npx ts-node prisma/seed.ts",
     "sentry:sourcemaps": "sentry-cli sourcemaps inject --org nnaemeka-bethrand --project worldshop-server ./dist && sentry-cli sourcemaps upload --org nnaemeka-bethrand --project worldshop-server ./dist"
   },
-  "keywords": ["worldstreet", "worldshop", "ecommerce", "api", "express", "prisma", "mongodb"],
+  "keywords": [
+    "worldstreet",
+    "worldshop",
+    "ecommerce",
+    "api",
+    "express",
+    "prisma",
+    "mongodb"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -33,6 +42,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.985.0",
     "@prisma/client": "6.19.2",
     "@sentry/cli": "^2.58.4",
     "@sentry/node": "^10.38.0",
@@ -46,6 +56,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
     "morgan": "^1.10.1",
+    "multer": "^2.0.2",
     "prisma": "6.19.2",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",

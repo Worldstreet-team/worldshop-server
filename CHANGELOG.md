@@ -4,7 +4,7 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.0] - 2025-07-15
+## [0.2.0] - 2026-02-08
 
 ### Added — Service 1: Auth Middleware
 - JWT authentication middleware (`requireAuth`, `optionalAuth`) with local token verification
