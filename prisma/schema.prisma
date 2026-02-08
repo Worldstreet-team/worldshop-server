@@ -22,3 +22,30 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ============================================
+// USER PROFILE
+// Extends the external auth user with shop-specific data.
+// `userId` is the user ID from WorldStreet Identity service.
+// ============================================
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+model UserProfile {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String    @unique // maps to external auth user id
+  email       String    @unique
+  firstName   String
+  lastName    String
+  phone       String?
+  avatar      String?
+  dateOfBirth DateTime?
+  gender      Gender?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}

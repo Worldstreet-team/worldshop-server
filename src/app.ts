@@ -1,13 +1,16 @@
 import express, { NextFunction, Request, Response } from 'express';
 import * as Sentry from '@sentry/node';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 
 import taskRoutes from './routes/taskRoutes';
+import profileRoutes from './routes/profile.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
 import { connectDatabase } from './configs/prismaConfig';
 import { rateLimiter } from './configs/rateLimitConfig';
+import { CLIENT_URL, NODE_ENV } from './configs/envConfig';
 
 import './configs/sentryConfig';
 
@@ -19,8 +22,22 @@ connectDatabase();
 // Rate limiting - Apply to all requests
 app.use(rateLimiter);
 
-// Middleware
-app.use(cors());
+// CORS — allow the shop client + localhost in dev
+const allowedOrigins = [
+  CLIENT_URL || 'https://shop.worldstreetgold.com',
+  ...(NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
+].filter(Boolean) as string[];
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID'],
+}));
+
+// Parse cookies (needed for HttpOnly JWT cookies)
+app.use(cookieParser());
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
@@ -34,6 +51,7 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
 app.use('/health', healthCheck);
 app.use('/api/v1/tasks', taskRoutes);
+app.use('/api/v1/profile', profileRoutes);
 
 app.get('/debug-sentry', (req, res) => {
   throw new Error('My first Sentry error!');

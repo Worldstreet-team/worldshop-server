@@ -1,0 +1,81 @@
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { JWT_ACCESS_SECRET } from '../configs/envConfig';
+import type { JwtPayload } from '../types/express';
+
+/**
+ * Extract the Bearer token from the Authorization header or cookie.
+ */
+function extractToken(req: Request): string | null {
+  // 1. Check Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+
+  // 2. Check cookies (HttpOnly accessToken set by the auth service)
+  if (req.cookies?.accessToken) {
+    return req.cookies.accessToken;
+  }
+
+  return null;
+}
+
+/**
+ * requireAuth — Protects routes that need an authenticated user.
+ * Verifies the JWT locally using the shared secret and attaches
+ * the decoded payload to req.user.
+ */
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  const token = extractToken(req);
+
+  if (!token) {
+    res.status(401).json({
+      success: false,
+      message: 'Authentication required. Please log in.',
+    });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as JwtPayload;
+    req.user = decoded;
+    next();
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      res.status(401).json({
+        success: false,
+        message: 'Token expired. Please refresh your session.',
+      });
+      return;
+    }
+
+    res.status(401).json({
+      success: false,
+      message: 'Invalid token. Please log in again.',
+    });
+  }
+}
+
+/**
+ * optionalAuth — Attempts to authenticate but does NOT reject
+ * unauthenticated requests. Use for routes that behave differently
+ * for logged-in vs guest users (e.g. cart, product reviews).
+ */
+export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
+  const token = extractToken(req);
+
+  if (!token) {
+    next();
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as JwtPayload;
+    req.user = decoded;
+  } catch {
+    // Token invalid/expired — proceed as guest
+  }
+
+  next();
+}
