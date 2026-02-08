@@ -38,8 +38,29 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as JwtPayload;
-    req.user = decoded;
+    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as Record<string, unknown>;
+
+    // Map the decoded JWT to our JwtPayload shape.
+    // WorldStreet Identity may use _id, userId, sub, or id — normalise here.
+    const userId = (decoded.id || decoded._id || decoded.userId || decoded.sub) as string | undefined;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: 'Invalid token payload: no user ID found.',
+        _debug_keys: Object.keys(decoded), // temporary — remove after confirming
+      });
+      return;
+    }
+
+    req.user = {
+      id: userId,
+      email: (decoded.email as string) || '',
+      firstName: (decoded.firstName as string) || (decoded.first_name as string) || '',
+      lastName: (decoded.lastName as string) || (decoded.last_name as string) || '',
+      role: ((decoded.role as string) || 'CUSTOMER').toUpperCase() as 'CUSTOMER' | 'ADMIN',
+    };
+
     next();
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
@@ -71,8 +92,18 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction): v
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as JwtPayload;
-    req.user = decoded;
+    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as Record<string, unknown>;
+    const userId = (decoded.id || decoded._id || decoded.userId || decoded.sub) as string | undefined;
+
+    if (userId) {
+      req.user = {
+        id: userId,
+        email: (decoded.email as string) || '',
+        firstName: (decoded.firstName as string) || (decoded.first_name as string) || '',
+        lastName: (decoded.lastName as string) || (decoded.last_name as string) || '',
+        role: ((decoded.role as string) || 'CUSTOMER').toUpperCase() as 'CUSTOMER' | 'ADMIN',
+      };
+    }
   } catch {
     // Token invalid/expired — proceed as guest
   }
