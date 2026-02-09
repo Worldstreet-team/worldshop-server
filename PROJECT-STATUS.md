@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
 **Last Updated:** February 9, 2026  
-**Version:** 0.6.0  
+**Version:** 0.6.1  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---

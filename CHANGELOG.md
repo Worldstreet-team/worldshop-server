@@ -4,6 +4,19 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] - 2026-02-09
+
+### Added — Email Receipts (Resend)
+- `resend` dependency for transactional emails
+- `src/configs/resendConfig.ts` — Resend client instance with env guard
+- `src/services/email.service.ts` — `sendOrderReceipt()` fire-and-forget function with full HTML receipt template
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` environment variables in `envConfig.ts`
+
+### Changed
+- `payment.service.ts` — `handleWebhook()` now sends order receipt email after successful `charge.success` webhook
+- Receipt includes: order number, date, payment channel, itemised line items with images, subtotal/shipping/discount/total, shipping address, "View My Orders" CTA
+- Email failures are logged via Winston — never block or break the checkout flow
+
 ## [0.6.0] - 2026-02-09
 
 ### Added — Service 8: Payments (Paystack)

@@ -12,6 +12,7 @@ import type {
   VerifyPaymentResult,
   PaystackWebhookEvent,
 } from '../types/payment.types';
+import { sendOrderReceipt } from './email.service';
 
 /**
  * Generate a unique payment reference.
@@ -265,6 +266,53 @@ export async function handleWebhook(
         },
       }),
     ]);
+
+    // ── Send order receipt email (fire-and-forget) ──────────────
+    const order = await prisma.order.findUnique({
+      where: { id: payment.orderId },
+      include: {
+        items: true,
+      },
+    });
+
+    if (order) {
+      const profile = await prisma.userProfile.findUnique({
+        where: { userId: order.userId },
+      });
+
+      const shippingAddr = order.shippingAddress as {
+        firstName: string;
+        lastName: string;
+        street: string;
+        apartment?: string;
+        city: string;
+        state: string;
+        country: string;
+        phone: string;
+      };
+
+      sendOrderReceipt({
+        customerEmail: profile?.email || data.customer?.email || '',
+        customerName: shippingAddr.firstName || profile?.firstName || 'Customer',
+        orderNumber: order.orderNumber,
+        orderId: order.id,
+        items: order.items.map((item) => ({
+          productName: item.productName,
+          variantName: item.variantName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          productImage: item.productImage,
+        })),
+        subtotal: order.subtotal,
+        shipping: order.shipping,
+        discount: order.discount,
+        total: order.total,
+        paymentChannel: data.channel || 'card',
+        paidAt: data.paid_at,
+        shippingAddress: shippingAddr,
+      });
+    }
   } else if (event.event === 'charge.failed') {
     await prisma.payment.update({
       where: { reference },
