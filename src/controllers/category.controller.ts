@@ -7,7 +7,7 @@ import { featuredQuerySchema } from '../validators/product.validator';
 
 /**
  * GET /api/v1/categories
- * All active categories (flat list with children embedded).
+ * All active categories (flat list with product count).
  */
 export const getCategories = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const categories = await categoryService.getAllCategories();
@@ -19,21 +19,8 @@ export const getCategories = catchAsync(async (req: Request, res: Response, _nex
 });
 
 /**
- * GET /api/v1/categories/tree
- * Hierarchical category tree (top-level → children).
- */
-export const getCategoryTree = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const tree = await categoryService.getCategoryTree();
-
-  res.status(200).json({
-    success: true,
-    data: tree,
-  });
-});
-
-/**
  * GET /api/v1/categories/featured
- * Featured categories for homepage display.
+ * Categories for homepage display (with product count).
  */
 export const getFeaturedCategories = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const { limit } = featuredQuerySchema.parse(req.query);

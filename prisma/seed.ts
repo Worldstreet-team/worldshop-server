@@ -22,7 +22,7 @@ async function main() {
   console.log('  ✓ Cleared existing products, variants & categories');
 
   // ══════════════════════════════════════════════════════════════
-  // CATEGORIES
+  // CATEGORIES  (flat — no subcategories)
   // ══════════════════════════════════════════════════════════════
   const electronics = await prisma.category.create({
     data: {
@@ -68,56 +68,7 @@ async function main() {
     },
   });
 
-  // ── Sub-categories ────────────────────────────────────────────
-  const laptops = await prisma.category.create({
-    data: { name: 'Laptops', slug: 'laptops', parentId: electronics.id, sortOrder: 1 },
-  });
-
-  const smartphones = await prisma.category.create({
-    data: { name: 'Smartphones', slug: 'smartphones', parentId: electronics.id, sortOrder: 2 },
-  });
-
-  const tablets = await prisma.category.create({
-    data: { name: 'Tablets', slug: 'tablets', parentId: electronics.id, sortOrder: 3 },
-  });
-
-  const elecAccessories = await prisma.category.create({
-    data: { name: 'Accessories', slug: 'accessories', parentId: electronics.id, sortOrder: 4 },
-  });
-
-  const mensClothing = await prisma.category.create({
-    data: { name: "Men's Clothing", slug: 'mens-clothing', parentId: fashion.id, sortOrder: 1 },
-  });
-
-  const womensClothing = await prisma.category.create({
-    data: { name: "Women's Clothing", slug: 'womens-clothing', parentId: fashion.id, sortOrder: 2 },
-  });
-
-  const shoes = await prisma.category.create({
-    data: { name: 'Shoes', slug: 'shoes', parentId: fashion.id, sortOrder: 3 },
-  });
-
-  const furniture = await prisma.category.create({
-    data: { name: 'Furniture', slug: 'furniture', parentId: homeGarden.id, sortOrder: 1 },
-  });
-
-  const decor = await prisma.category.create({
-    data: { name: 'Decor', slug: 'decor', parentId: homeGarden.id, sortOrder: 2 },
-  });
-
-  const kitchen = await prisma.category.create({
-    data: { name: 'Kitchen', slug: 'kitchen', parentId: homeGarden.id, sortOrder: 3 },
-  });
-
-  const fitnessEquipment = await prisma.category.create({
-    data: { name: 'Fitness Equipment', slug: 'fitness-equipment', parentId: sports.id, sortOrder: 1 },
-  });
-
-  const camping = await prisma.category.create({
-    data: { name: 'Camping', slug: 'camping', parentId: sports.id, sortOrder: 2 },
-  });
-
-  console.log('  ✓ Created 4 parent + 12 child categories');
+  console.log('  ✓ Created 4 categories');
 
   // ══════════════════════════════════════════════════════════════
   // PRODUCTS  (prices in NGN ₦)
