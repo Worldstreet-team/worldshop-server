@@ -221,6 +221,7 @@ model Order {
 
   items           OrderItem[]
   statusHistory   OrderStatusHistory[]
+  payment         Payment?
 
   // Shipping address (embedded)
   shippingAddress Json                 // { firstName, lastName, address, city, state, country, phone, postalCode }
@@ -277,4 +278,38 @@ model OrderStatusHistory {
   createdAt DateTime    @default(now())
 
   @@index([orderId])
+}
+
+// ============================================
+// PAYMENTS
+// Paystack payment records linked to orders.
+// Amounts stored in NGN (sent to Paystack in kobo).
+// ============================================
+
+enum PaymentStatus {
+  PENDING    // Awaiting payment
+  COMPLETED  // Payment successful
+  FAILED     // Payment declined / failed
+  REFUNDED   // Full refund issued
+}
+
+model Payment {
+  id          String        @id @default(auto()) @map("_id") @db.ObjectId
+  orderId     String        @unique @db.ObjectId
+  order       Order         @relation(fields: [orderId], references: [id])
+  userId      String        @db.ObjectId
+  amount      Float                              // Amount in NGN
+  currency    String        @default("NGN")
+  status      PaymentStatus @default(PENDING)
+  provider    String        @default("paystack")
+  reference   String?       @unique              // Paystack transaction reference
+  paystackId  String?                             // Paystack transaction ID
+  channel     String?                             // card, bank, ussd, qr, etc.
+  metadata    Json?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  paidAt      DateTime?
+
+  @@index([userId])
 }

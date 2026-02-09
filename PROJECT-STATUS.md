@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
 **Last Updated:** February 9, 2026  
-**Version:** 0.3.0  
+**Version:** 0.6.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -200,6 +200,99 @@
   - [x] Category detail by slug and by id
   - [x] Featured categories endpoint
 
+### Phase 7: Cart & Checkout (Service 5) ✅
+
+- [x] **Cart Prisma models**
+  - [x] `Cart` — userId (nullable for guest), sessionId, expiresAt
+  - [x] `CartItem` — cartId, productId, variantId, quantity, price snapshot
+  - [x] Relationships: Cart → CartItem → Product/Variant
+
+- [x] **Cart Service**
+  - [x] `getOrCreateCart` (guest via sessionId, auth via userId)
+  - [x] Add/update/remove cart items with stock validation
+  - [x] Clear cart, merge guest cart on login
+  - [x] Shipping calculation (free over ₦50,000, flat ₦2,500)
+
+- [x] **Checkout Service**
+  - [x] Cart validation (stock availability, price verification)
+  - [x] Checkout validation issues list
+
+- [x] **Order Prisma models**
+  - [x] `Order` — orderNumber, userId, status enum, subtotal/shipping/discount/total, shippingAddress/billingAddress (JSON), timestamps
+  - [x] `OrderItem` — orderId, productId, variantId, quantity, unitPrice, totalPrice, productSnapshot (JSON)
+  - [x] `OrderStatusHistory` — orderId, status, changedBy, notes, timestamp
+  - [x] `OrderStatus` enum (PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED → CANCELLED → REFUNDED)
+
+- [x] **Order Service**
+  - [x] Create order from cart (transactional: validate stock → create order items → decrement stock → clear cart)
+  - [x] Order number generation (`WS-YYYYMMDD-XXXXX`)
+  - [x] List user orders with pagination
+  - [x] Get order by ID or order number (ownership check)
+  - [x] Cancel order (only PENDING/CONFIRMED status)
+
+- [x] **Cart Endpoints**
+  - [x] `GET /api/v1/cart` — get or create cart
+  - [x] `POST /api/v1/cart/items` — add item
+  - [x] `PATCH /api/v1/cart/items/:id` — update quantity
+  - [x] `DELETE /api/v1/cart/items/:id` — remove item
+  - [x] `DELETE /api/v1/cart` — clear cart
+  - [x] `POST /api/v1/cart/merge` — merge guest → auth
+
+- [x] **Checkout/Order Endpoints**
+  - [x] `POST /api/v1/checkout/validate` — validate cart
+  - [x] `POST /api/v1/orders` — create order
+  - [x] `GET /api/v1/orders` — list user orders
+  - [x] `GET /api/v1/orders/:id` — order detail
+  - [x] `GET /api/v1/orders/number/:orderNumber` — order by number
+  - [x] `POST /api/v1/orders/:id/cancel` — cancel order
+
+### Phase 8: Addresses (Service 6) ✅
+
+- [x] **Address Prisma model**
+  - [x] userId, label, firstName, lastName, phone, street, apartment, city, state, country (default "Nigeria"), postalCode, isDefault
+  - [x] `@@index([userId])` for efficient queries
+
+- [x] **Address Service**
+  - [x] List addresses (default first, then newest)
+  - [x] Get address by ID (ownership enforced)
+  - [x] Create address (max 5 per user, auto-default for first)
+  - [x] Update address (ownership + default toggle)
+  - [x] Delete address (prevents deleting default)
+  - [x] Set default address (unsets old, sets new)
+
+- [x] **Address Validation**
+  - [x] Nigerian states only via `z.enum(NIGERIAN_STATES)` (37 states + FCT)
+  - [x] Required: firstName, lastName, phone, street, city, state
+  - [x] Optional: label, apartment, postalCode, isDefault
+
+- [x] **Address Endpoints**
+  - [x] `GET /api/v1/addresses` — list user addresses
+  - [x] `GET /api/v1/addresses/:id` — get single address
+  - [x] `POST /api/v1/addresses` — create address
+  - [x] `PUT /api/v1/addresses/:id` — update address
+  - [x] `DELETE /api/v1/addresses/:id` — delete address
+  - [x] `PATCH /api/v1/addresses/:id/default` — set default
+
+### Phase 9: Payments — Paystack (Service 8) ✅
+
+- [x] **Payment Prisma model**
+  - [x] orderId (@unique), userId, amount, currency (NGN), status (PaymentStatus enum), provider ("paystack"), reference (@unique), paystackId, channel, metadata, paidAt
+  - [x] `@@index([userId])`
+
+- [x] **Paystack Configuration**
+  - [x] `paystackConfig.ts` — `initializeTransaction`, `verifyTransaction`, `verifyWebhookSignature` (HMAC SHA-512)
+  - [x] Environment variables: `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`
+
+- [x] **Payment Service**
+  - [x] `initializePayment` — ownership check, CREATED status guard, idempotent re-init for PENDING, Paystack API call, Payment record creation
+  - [x] `verifyPayment` — verify with Paystack, update Payment (COMPLETED) + Order (PAID) in transaction
+  - [x] `handleWebhook` — idempotent charge.success/charge.failed processing
+
+- [x] **Payment Endpoints**
+  - [x] `POST /api/v1/payments/initialize` — initialize Paystack payment (auth required)
+  - [x] `GET /api/v1/payments/verify/:reference` — verify payment (auth required)
+  - [x] `POST /api/v1/payments/webhook` — Paystack webhook (HMAC verified, no auth)
+
 ---
 
 ## 🚧 Pending Features
@@ -264,48 +357,48 @@
 
 #### Cart Models
 
-- [ ] **Cart** - Shopping carts
-  - [ ] id, userId (nullable for guest carts)
-  - [ ] sessionId (for guest carts)
-  - [ ] expiresAt
-  - [ ] Relationship: CartItems
+- [x] **Cart** - Shopping carts ✅
+  - [x] id, userId (nullable for guest carts)
+  - [x] sessionId (for guest carts)
+  - [x] expiresAt
+  - [x] Relationship: CartItems
 
-- [ ] **CartItem** - Cart line items
-  - [ ] id, cartId, productId, variantId
-  - [ ] quantity, price (snapshot)
-  - [ ] Relationship: Cart, Product, Variant
+- [x] **CartItem** - Cart line items ✅
+  - [x] id, cartId, productId, variantId
+  - [x] quantity, price (snapshot)
+  - [x] Relationship: Cart, Product, Variant
 
 #### Order Models
 
-- [ ] **Order** - Customer orders
-  - [ ] id, orderNumber, userId
-  - [ ] status (CREATED, PAID, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED)
-  - [ ] subtotal, tax, shippingCost, discount, total
-  - [ ] shippingAddressId, billingAddressId
-  - [ ] paymentId, trackingNumber
-  - [ ] notes, timestamps
+- [x] **Order** - Customer orders ✅
+  - [x] id, orderNumber, userId
+  - [x] status (PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED)
+  - [x] subtotal, shipping, discount, total
+  - [x] shippingAddress, billingAddress (JSON)
+  - [x] trackingNumber, notes, timestamps
 
-- [ ] **OrderItem** - Order line items
-  - [ ] id, orderId, productId, variantId
-  - [ ] quantity, price, subtotal
-  - [ ] productSnapshot (JSON - name, image, etc.)
-  - [ ] Relationship: Order, Product, Variant
+- [x] **OrderItem** - Order line items ✅
+  - [x] id, orderId, productId, variantId
+  - [x] quantity, unitPrice, totalPrice
+  - [x] productSnapshot (JSON - name, image, etc.)
+  - [x] Relationship: Order, Product, Variant
 
-- [ ] **OrderStatusHistory** - Order status tracking
-  - [ ] id, orderId, status
-  - [ ] changedBy, notes
-  - [ ] timestamp
+- [x] **OrderStatusHistory** - Order status tracking ✅
+  - [x] id, orderId, status
+  - [x] changedBy, notes
+  - [x] timestamp
 
 #### Payment Models
 
-- [ ] **Payment** - Payment records
-  - [ ] id, orderId, userId
-  - [ ] provider (PAYSTACK, STRIPE, CASH)
-  - [ ] status (PENDING, SUCCESS, FAILED, REFUNDED)
-  - [ ] amount, currency
-  - [ ] transactionId, reference
-  - [ ] metadata (JSON)
-  - [ ] timestamps
+- [x] **Payment** - Payment records ✅
+  - [x] id, orderId (@unique), userId
+  - [x] provider (default "paystack")
+  - [x] status (PENDING, COMPLETED, FAILED, REFUNDED)
+  - [x] amount, currency (default "NGN")
+  - [x] reference (@unique), paystackId
+  - [x] channel (card, bank, ussd, etc.)
+  - [x] metadata (JSON)
+  - [x] paidAt, timestamps
 
 - [ ] **Refund** - Refund tracking
   - [ ] id, orderId, paymentId
@@ -328,13 +421,11 @@
 
 #### User-Related Models
 
-- [ ] **Address** - User addresses
-  - [ ] id, userId, type (SHIPPING, BILLING, BOTH)
-  - [ ] fullName, phone
-  - [ ] addressLine1, addressLine2
-  - [ ] city, state, postalCode, country
-  - [ ] isDefault
-  - [ ] Relationship: User, Orders
+- [x] **Address** - User addresses ✅
+  - [x] id, userId, label, firstName, lastName, phone
+  - [x] street, apartment, city, state, country, postalCode
+  - [x] isDefault
+  - [x] Nigerian states only, max 5 per user
 
 - [ ] **Wishlist** - User wishlists
   - [ ] id, userId
@@ -422,31 +513,28 @@
 - [ ] `DELETE /api/admin/categories/:id` - Delete category
 - [ ] `POST /api/admin/categories/:id/image` - Upload category image
 
-### Phase 10: Cart Management API
+### Phase 10: Cart Management API ✅
 
-- [ ] `GET /api/cart` - Get user cart (session/auth)
-- [ ] `POST /api/cart/items` - Add item to cart
-- [ ] `PATCH /api/cart/items/:id` - Update item quantity
-- [ ] `DELETE /api/cart/items/:id` - Remove item from cart
-- [ ] `DELETE /api/cart` - Clear cart
-- [ ] `POST /api/cart/merge` - Merge guest cart to user (auth)
-- [ ] Cart expiration handling (7 days for guest, never for auth)
-- [ ] Real-time stock validation
+- [x] `GET /api/v1/cart` - Get user cart (session/auth)
+- [x] `POST /api/v1/cart/items` - Add item to cart
+- [x] `PATCH /api/v1/cart/items/:id` - Update item quantity
+- [x] `DELETE /api/v1/cart/items/:id` - Remove item from cart
+- [x] `DELETE /api/v1/cart` - Clear cart
+- [x] `POST /api/v1/cart/merge` - Merge guest cart to user (auth)
+- [x] Real-time stock validation
 
-### Phase 11: Checkout & Order API
+### Phase 11: Checkout & Order API ✅
 
-- [ ] `POST /api/checkout/validate` - Validate cart for checkout
-  - [ ] Check product availability
-  - [ ] Verify prices
-  - [ ] Calculate shipping
-  - [ ] Apply discounts
+- [x] `POST /api/v1/checkout/validate` - Validate cart for checkout
+  - [x] Check product availability
+  - [x] Verify prices
+  - [x] Calculate shipping
 
-- [ ] `POST /api/checkout` - Create checkout session
-- [ ] `GET /api/shipping/rates` - Get shipping options
-- [ ] `POST /api/orders` - Create order after payment
-- [ ] `GET /api/orders` - List user orders (auth)
-- [ ] `GET /api/orders/:id` - Get order details (auth)
-- [ ] `POST /api/orders/:id/cancel` - Cancel order (auth)
+- [x] `POST /api/v1/orders` - Create order from cart
+- [x] `GET /api/v1/orders` - List user orders (auth, paginated)
+- [x] `GET /api/v1/orders/:id` - Get order details (auth)
+- [x] `GET /api/v1/orders/number/:orderNumber` - Get order by number
+- [x] `POST /api/v1/orders/:id/cancel` - Cancel order (auth)
 
 #### Admin Endpoints
 
@@ -495,13 +583,13 @@
 - [ ] `PATCH /api/admin/reviews/:id/approve` - Approve review
 - [ ] `PATCH /api/admin/reviews/:id/reject` - Reject review
 
-### Phase 15: Address Management API
+### Phase 15: Address Management API ✅
 
-- [ ] `GET /api/addresses` - List user addresses (auth)
-- [ ] `POST /api/addresses` - Add address (auth)
-- [ ] `PUT /api/addresses/:id` - Update address (auth)
-- [ ] `DELETE /api/addresses/:id` - Delete address (auth)
-- [ ] `PATCH /api/addresses/:id/default` - Set default address (auth)
+- [x] `GET /api/v1/addresses` - List user addresses (auth)
+- [x] `POST /api/v1/addresses` - Add address (auth, max 5)
+- [x] `PUT /api/v1/addresses/:id` - Update address (auth)
+- [x] `DELETE /api/v1/addresses/:id` - Delete address (auth, cannot delete default)
+- [x] `PATCH /api/v1/addresses/:id/default` - Set default address (auth)
 
 ### Phase 16: Wishlist API
 
