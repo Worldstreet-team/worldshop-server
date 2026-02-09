@@ -8,6 +8,7 @@ import profileRoutes from './routes/profile.routes';
 import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
 import cartRoutes from './routes/cart.routes';
+import addressRoutes from './routes/address.routes';
 import checkoutRoutes from './routes/checkout.routes';
 import orderRoutes from './routes/order.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
@@ -60,6 +61,7 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
       products: '/api/v1/products',
       categories: '/api/v1/categories',
       cart: '/api/v1/cart',
+      addresses: '/api/v1/addresses',
       checkout: '/api/v1/checkout',
       orders: '/api/v1/orders',
     },
@@ -72,6 +74,7 @@ app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/cart', cartRoutes);
+app.use('/api/v1/addresses', addressRoutes);
 app.use('/api/v1/checkout', checkoutRoutes);
 app.use('/api/v1/orders', orderRoutes);
 

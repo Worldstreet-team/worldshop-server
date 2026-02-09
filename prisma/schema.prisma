@@ -51,6 +51,32 @@ model UserProfile {
 }
 
 // ============================================
+// ADDRESSES
+// Saved delivery addresses per user (max 5).
+// Country defaults to Nigeria with Nigerian states.
+// ============================================
+
+model Address {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   // maps to external auth user id
+  label       String?  // "Home", "Office", etc.
+  firstName   String
+  lastName    String
+  phone       String
+  street      String
+  apartment   String?
+  city        String
+  state       String
+  country     String   @default("Nigeria")
+  postalCode  String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================
 // CATEGORIES
 // Hierarchical product categories with self-referential parent/child.
 // ============================================
