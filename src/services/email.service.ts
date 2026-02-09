@@ -1,9 +1,9 @@
 /**
  * Email service — transactional receipt emails via Resend.
  *
- * - Fires ONLY after confirmed payment (webhook).
+ * - Fires ONLY after confirmed payment.
  * - Failures are logged, never thrown — checkout must never break.
- * - All calls are fire-and-forget (async, non-blocking).
+ * - Callers should trigger it asynchronously (non-blocking).
  */
 import { resend } from '../configs/resendConfig';
 import { RESEND_FROM_EMAIL, CLIENT_URL } from '../configs/envConfig';
@@ -45,17 +45,22 @@ interface OrderReceiptData {
 
 /**
  * Send order receipt email.
- * Fire-and-forget — errors are logged, never thrown.
+ * Returns true if send succeeded, false if it failed.
  */
-export function sendOrderReceipt(data: OrderReceiptData): void {
-  // Run async without awaiting so it never blocks the caller
-  _sendReceipt(data).catch((err) => {
+export async function sendOrderReceipt(
+  data: OrderReceiptData
+): Promise<boolean> {
+  try {
+    await _sendReceipt(data);
+    return true;
+  } catch (err) {
     logger.error('[Email] Failed to send order receipt', {
       orderNumber: data.orderNumber,
       email: data.customerEmail,
       error: (err as Error).message,
     });
-  });
+    return false;
+  }
 }
 
 // ─── Internal ───────────────────────────────────────────────────

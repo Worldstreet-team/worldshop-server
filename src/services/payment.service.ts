@@ -2,6 +2,7 @@ import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
 import { randomUUID } from 'crypto';
 import { OrderStatus, PaymentStatus } from '../../generated/prisma';
+import type { Prisma } from '../../generated/prisma';
 import { CLIENT_URL } from '../configs/envConfig';
 import {
   initializeTransaction,
@@ -13,6 +14,117 @@ import type {
   PaystackWebhookEvent,
 } from '../types/payment.types';
 import { sendOrderReceipt } from './email.service';
+import { globalLog as logger } from '../configs/loggerConfig';
+
+type ReceiptMetadata = {
+  receiptSentAt?: string;
+};
+
+function getReceiptMetadata(metadata: unknown): ReceiptMetadata {
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    return metadata as ReceiptMetadata;
+  }
+  return {};
+}
+
+function withReceiptSentAt(metadata: unknown): Record<string, unknown> {
+  const base = getReceiptMetadata(metadata) as Record<string, unknown>;
+  return {
+    ...base,
+    receiptSentAt: new Date().toISOString(),
+  };
+}
+
+async function sendReceiptIfNeeded(
+  paymentId: string,
+  orderId: string,
+  paidAt: string,
+  paymentChannel: string,
+  fallbackEmail?: string
+): Promise<void> {
+  const paymentRecord = await prisma.payment.findUnique({
+    where: { id: paymentId },
+  });
+
+  if (!paymentRecord) {
+    return;
+  }
+
+  const meta = getReceiptMetadata(paymentRecord.metadata);
+  if (meta.receiptSentAt) {
+    return;
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: true },
+  });
+
+  if (!order) {
+    return;
+  }
+
+  const profile = await prisma.userProfile.findUnique({
+    where: { userId: order.userId },
+  });
+
+  const shippingAddr = order.shippingAddress as {
+    firstName: string;
+    lastName: string;
+    street: string;
+    apartment?: string;
+    city: string;
+    state: string;
+    country: string;
+    phone: string;
+  };
+
+  const customerEmail = profile?.email || fallbackEmail || '';
+  if (!customerEmail) {
+    logger.warn('[Email] Skipped receipt — no customer email found', {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    });
+    return;
+  }
+
+  void sendOrderReceipt({
+    customerEmail,
+    customerName: shippingAddr.firstName || profile?.firstName || 'Customer',
+    orderNumber: order.orderNumber,
+    orderId: order.id,
+    items: order.items.map((item) => ({
+      productName: item.productName,
+      variantName: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      productImage: item.productImage,
+    })),
+    subtotal: order.subtotal,
+    shipping: order.shipping,
+    discount: order.discount,
+    total: order.total,
+    paymentChannel: paymentChannel || 'card',
+    paidAt,
+    shippingAddress: shippingAddr,
+  }).then((sent) => {
+    if (!sent) {
+      return;
+    }
+
+    return prisma.payment.update({
+      where: { id: paymentRecord.id },
+      data: {
+        metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
+      },
+    }).catch(() => {
+      logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+        paymentId: paymentRecord.id,
+      });
+    });
+  });
+}
 
 /**
  * Generate a unique payment reference.
@@ -175,6 +287,15 @@ export async function verifyPayment(
       }),
     ]);
 
+    // Fallback: send receipt after verify (if webhook did not fire)
+    void sendReceiptIfNeeded(
+      updatedPayment.id,
+      payment.orderId,
+      data.paid_at,
+      data.channel || 'card',
+      data.customer?.email
+    );
+
     return {
       status: 'success',
       reference: updatedPayment.reference!,
@@ -267,52 +388,14 @@ export async function handleWebhook(
       }),
     ]);
 
-    // ── Send order receipt email (fire-and-forget) ──────────────
-    const order = await prisma.order.findUnique({
-      where: { id: payment.orderId },
-      include: {
-        items: true,
-      },
-    });
-
-    if (order) {
-      const profile = await prisma.userProfile.findUnique({
-        where: { userId: order.userId },
-      });
-
-      const shippingAddr = order.shippingAddress as {
-        firstName: string;
-        lastName: string;
-        street: string;
-        apartment?: string;
-        city: string;
-        state: string;
-        country: string;
-        phone: string;
-      };
-
-      sendOrderReceipt({
-        customerEmail: profile?.email || data.customer?.email || '',
-        customerName: shippingAddr.firstName || profile?.firstName || 'Customer',
-        orderNumber: order.orderNumber,
-        orderId: order.id,
-        items: order.items.map((item) => ({
-          productName: item.productName,
-          variantName: item.variantName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          productImage: item.productImage,
-        })),
-        subtotal: order.subtotal,
-        shipping: order.shipping,
-        discount: order.discount,
-        total: order.total,
-        paymentChannel: data.channel || 'card',
-        paidAt: data.paid_at,
-        shippingAddress: shippingAddr,
-      });
-    }
+    // Send order receipt email (non-blocking, deduped)
+    void sendReceiptIfNeeded(
+      payment.id,
+      payment.orderId,
+      data.paid_at,
+      data.channel || 'card',
+      data.customer?.email
+    );
   } else if (event.event === 'charge.failed') {
     await prisma.payment.update({
       where: { reference },
