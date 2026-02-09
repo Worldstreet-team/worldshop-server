@@ -101,11 +101,10 @@ function buildReceiptHTML(data: OrderReceiptData): string {
       (item) => `
       <tr>
         <td style="padding:12px 8px;border-bottom:1px solid #eee;">
-          ${
-            item.productImage
-              ? `<img src="${item.productImage}" alt="${item.productName}" width="50" height="50" style="border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px;" />`
-              : ''
-          }
+          ${item.productImage
+          ? `<img src="${item.productImage}" alt="${item.productName}" width="50" height="50" style="border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px;" />`
+          : ''
+        }
           <span style="vertical-align:middle;">
             ${item.productName}${item.variantName ? ` <span style="color:#666;font-size:12px;">(${item.variantName})</span>` : ''}
           </span>
