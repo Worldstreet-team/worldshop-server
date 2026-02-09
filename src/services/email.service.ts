@@ -68,7 +68,7 @@ export async function sendOrderReceipt(
 async function _sendReceipt(data: OrderReceiptData): Promise<void> {
   const fromAddress = RESEND_FROM_EMAIL || 'orders@worldstreetgold.com';
 
-  const { error } = await resend.emails.send({
+  const { data: resData, error } = await resend.emails.send({
     from: `WorldStreet Shop <${fromAddress}>`,
     to: [data.customerEmail],
     subject: `Order Confirmed — ${data.orderNumber}`,
@@ -82,6 +82,7 @@ async function _sendReceipt(data: OrderReceiptData): Promise<void> {
   logger.info('[Email] Order receipt sent', {
     orderNumber: data.orderNumber,
     to: data.customerEmail,
+    emailId: resData?.id,
   });
 }
 
