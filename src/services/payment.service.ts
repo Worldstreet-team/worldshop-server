@@ -1,6 +1,6 @@
 import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { OrderStatus, PaymentStatus } from '../../generated/prisma';
 import { CLIENT_URL } from '../configs/envConfig';
 import {
@@ -18,7 +18,8 @@ import type {
  * Format: WS-PAY-<nanoid>
  */
 function generateReference(): string {
-  return `WS-PAY-${nanoid(16)}`;
+  const uuid = randomUUID().replace(/-/g, '');
+  return `WS-PAY-${uuid.slice(0, 16)}`;
 }
 
 /**
