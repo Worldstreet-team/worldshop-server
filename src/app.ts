@@ -7,6 +7,9 @@ import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
 import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
+import cartRoutes from './routes/cart.routes';
+import checkoutRoutes from './routes/checkout.routes';
+import orderRoutes from './routes/order.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
@@ -56,6 +59,9 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
       profile: '/api/v1/profile',
       products: '/api/v1/products',
       categories: '/api/v1/categories',
+      cart: '/api/v1/cart',
+      checkout: '/api/v1/checkout',
+      orders: '/api/v1/orders',
     },
   });
 });
@@ -65,6 +71,9 @@ app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/cart', cartRoutes);
+app.use('/api/v1/checkout', checkoutRoutes);
+app.use('/api/v1/orders', orderRoutes);
 
 app.get('/debug-sentry', (req, res) => {
   throw new Error('My first Sentry error!');
