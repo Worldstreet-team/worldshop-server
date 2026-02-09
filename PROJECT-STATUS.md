@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 8, 2026  
-**Version:** 0.2.0  
+**Last Updated:** February 9, 2026  
+**Version:** 0.3.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -188,6 +188,18 @@
   - [x] Profile page connected to real API
   - [x] Profile auto-creates from auth user data on first visit
 
+### Phase 6: Products & Categories (Services 3-4) ✅
+
+- [x] **Products API**
+  - [x] Product listing with filters and pagination
+  - [x] Product detail by slug and by id
+  - [x] Featured, related, search, price range, and brand endpoints
+
+- [x] **Categories API**
+  - [x] Category listing
+  - [x] Category detail by slug and by id
+  - [x] Featured categories endpoint
+
 ---
 
 ## 🚧 Pending Features
@@ -204,31 +216,31 @@
 
 #### Product & Catalog Models
 
-- [ ] **Product** - Main product model
-  - [ ] id, name, slug, description, basePrice, salePrice, sku
-  - [ ] categoryId, brandId, vendorId
-  - [ ] isActive, isFeatured, isNewArrival
-  - [ ] ratings, reviewCount
-  - [ ] timestamps
+- [x] **Product** - Main product model
+  - [x] id, name, slug, description, basePrice, salePrice, sku
+  - [x] categoryId, brandId, vendorId
+  - [x] isActive, isFeatured, isNewArrival
+  - [x] ratings, reviewCount
+  - [x] timestamps
 
-- [ ] **ProductImage** - Product images
-  - [ ] id, productId, url, altText, sortOrder
-  - [ ] isDefault, cloudflareId
-  - [ ] Relationship: Product (one-to-many)
+- [x] **ProductImage** - Product images
+  - [x] id, productId, url, altText, sortOrder
+  - [x] isDefault, cloudflareId
+  - [x] Relationship: Product (one-to-many)
 
-- [ ] **ProductVariant** - Size/color/style variants
-  - [ ] id, productId, sku, name
-  - [ ] attributes (JSON - size, color, etc.)
-  - [ ] price, compareAtPrice
-  - [ ] inventoryId
-  - [ ] Relationship: Product, Inventory
+- [x] **ProductVariant** - Size/color/style variants
+  - [x] id, productId, sku, name
+  - [x] attributes (JSON - size, color, etc.)
+  - [x] price, compareAtPrice
+  - [x] inventoryId
+  - [x] Relationship: Product, Inventory
 
-- [ ] **Category** - Product categories
-  - [ ] id, name, slug, description
-  - [ ] parentId (self-referential)
-  - [ ] image, icon
-  - [ ] sortOrder, isActive
-  - [ ] Relationship: Products, Parent, Children
+- [x] **Category** - Product categories
+  - [x] id, name, slug, description
+  - [x] parentId (self-referential)
+  - [x] image, icon
+  - [x] sortOrder, isActive
+  - [x] Relationship: Products, Parent, Children
 
 - [ ] **Brand** - Product brands
   - [ ] id, name, slug, logo
@@ -363,20 +375,22 @@
 
 #### Customer Endpoints
 
-- [ ] `GET /api/products` - List products with filters
-  - [ ] Filter by category, brand, price range
-  - [ ] Search by name/description
-  - [ ] Sort by price, name, date, popularity
-  - [ ] Pagination support
-- [ ] `GET /api/products/:slug` - Get product details
-  - [ ] Include images, variants, inventory
-  - [ ] Include category and brand info
-  - [ ] Include reviews summary
+- [x] `GET /api/products` - List products with filters
+  - [x] Filter by category, brand, price range
+  - [x] Search by name/description
+  - [x] Sort by price, name, date, popularity
+  - [x] Pagination support
+- [x] `GET /api/products/:slug` - Get product details
+- [x] `GET /api/products/id/:id` - Get product by id
+- [x] `GET /api/products/:id/related` - Get related products
+- [x] `GET /api/products/featured` - Get featured products
+- [x] `GET /api/products/search` - Search products
+- [x] `GET /api/products/price-range` - Get min/max prices
+- [x] `GET /api/products/brands` - Get available brands
 
 - [ ] `GET /api/products/:id/variants` - Get product variants
 - [ ] `GET /api/products/:id/reviews` - Get product reviews
 - [ ] `POST /api/products/:id/reviews` - Add review (Auth)
-- [ ] `GET /api/products/featured` - Get featured products
 - [ ] `GET /api/products/new-arrivals` - Get new products
 - [ ] `GET /api/products/best-sellers` - Get popular products
 
@@ -394,8 +408,10 @@
 
 ### Phase 9: Category Management API
 
-- [ ] `GET /api/categories` - List all categories
-- [ ] `GET /api/categories/:slug` - Get category with products
+- [x] `GET /api/categories` - List all categories
+- [x] `GET /api/categories/:slug` - Get category with products
+- [x] `GET /api/categories/featured` - Get featured categories
+- [x] `GET /api/categories/id/:id` - Get category by id
 - [ ] `GET /api/categories/tree` - Get category hierarchy
 - [ ] `GET /api/categories/:id/subcategories` - Get subcategories
 

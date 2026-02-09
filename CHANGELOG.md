@@ -4,6 +4,18 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-02-09
+
+### Added — Service 3: Products
+- Product, ProductImage, and ProductVariant Prisma models
+- Product list and detail endpoints with filtering and pagination
+- Product validators, service, controller, and routes
+
+### Added — Service 4: Categories
+- Category Prisma model
+- Category list and detail endpoints
+- Category validators, service, controller, and routes
+
 ## [0.2.0] - 2026-02-08
 
 ### Added — Service 1: Auth Middleware
