@@ -4,6 +4,42 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-02-10
+
+### Added — Service 9: Reviews (Customer-Facing)
+- `Review` Prisma model — `productId @db.ObjectId`, `userId`, `userName`, `rating (1-5)`, `title?`, `comment`, `isVerified`, `@@unique([productId, userId])`, indexes on productId and userId
+- `src/types/review.types.ts` — `ReviewResponse`, `ReviewSummary` (with rating distribution), `PaginatedReviews`
+- `src/validators/review.validator.ts` — `createReviewSchema`, `updateReviewSchema`, `reviewsQuerySchema` (Zod schemas)
+- `src/services/review.service.ts` — `getProductReviews` (paginated, filterable by rating, sortable), `getReviewSummary`, `createReview` (auto-verifies if user has DELIVERED order), `updateReview`, `deleteReview`, `getUserReviewForProduct`
+- `src/controllers/review.controller.ts` — `getProductReviews`, `getReviewSummary`, `getMyReview`, `createReview`, `updateReview`, `deleteReview`
+- `src/routes/review.routes.ts` — mounted at `/api/v1/products/:productId/reviews` with `mergeParams: true`
+- Auto-recalculates `Product.avgRating` and `Product.reviewCount` on every create/update/delete via Prisma aggregate
+- One review per user per product enforced via `@@unique([productId, userId])`
+
+### Added — Service 10: Wishlist
+- `Wishlist` Prisma model — `userId @unique`, one-to-many `WishlistItem[]`
+- `WishlistItem` Prisma model — `wishlistId @db.ObjectId`, `productId @db.ObjectId`, `addedAt`, `@@unique([wishlistId, productId])`
+- Added `reviews Review[]` and `wishlistItems WishlistItem[]` relations to `Product` model
+- `src/types/wishlist.types.ts` — `WishlistItemResponse` (with product details), `WishlistResponse`
+- `src/services/wishlist.service.ts` — `getWishlist` (auto-create on first access), `addToWishlist`, `removeFromWishlist`, `isInWishlist`
+- `src/controllers/wishlist.controller.ts` — `getWishlist`, `addToWishlist`, `removeFromWishlist`, `checkWishlist`
+- `src/routes/wishlist.routes.ts` — all routes behind `requireAuth`
+
+### Changed
+- `app.ts` — mounted review routes at `/api/v1/products/:productId/reviews` and wishlist routes at `/api/v1/wishlist`; added both to endpoint info response
+
+### Endpoints Added
+- `GET /api/v1/products/:productId/reviews` — paginated reviews (public)
+- `GET /api/v1/products/:productId/reviews/summary` — review summary + distribution (public)
+- `GET /api/v1/products/:productId/reviews/mine` — current user's review (auth)
+- `POST /api/v1/products/:productId/reviews` — create review (auth)
+- `PUT /api/v1/products/:productId/reviews/:reviewId` — update own review (auth)
+- `DELETE /api/v1/products/:productId/reviews/:reviewId` — delete own review (auth)
+- `GET /api/v1/wishlist` — get wishlist with product details (auth)
+- `POST /api/v1/wishlist/items` — add product to wishlist (auth)
+- `DELETE /api/v1/wishlist/items/:productId` — remove from wishlist (auth)
+- `GET /api/v1/wishlist/check/:productId` — check if in wishlist (auth)
+
 ## [0.6.2] - 2026-02-09
 
 ### Fixed — Resend Email Integration (Render Deploy)
