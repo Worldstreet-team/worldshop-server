@@ -13,9 +13,13 @@ import {
  */
 function getCartIdentifiers(req: Request): { userId?: string; sessionId?: string } {
   const userId = req.user?.id;
+  // If authenticated, ignore sessionId to prevent conflicts
+  if (userId) {
+    return { userId, sessionId: undefined };
+  }
   const rawSessionId = req.headers['x-session-id'];
   const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
-  return { userId, sessionId };
+  return { userId: undefined, sessionId };
 }
 
 /**

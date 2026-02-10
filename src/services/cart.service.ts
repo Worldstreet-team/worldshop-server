@@ -38,12 +38,18 @@ export async function getOrCreateCart(
     cart = await prisma.cart.upsert({
       where,
       update: { updatedAt: new Date() },
-      create: userId ? { userId } : { sessionId },
+      create: userId ? { userId, sessionId: null } : { sessionId },
       include,
     });
   } catch (error: unknown) {
     if ((error as { code?: string })?.code === 'P2002') {
-      cart = await prisma.cart.findUnique({ where, include });
+      // Fallback: find any cart for this user
+      cart = await prisma.cart.findFirst({
+        where: userId
+          ? { OR: [{ userId }, { sessionId: sessionId || undefined }] }
+          : { sessionId },
+        include,
+      });
       if (!cart) throw error;
     } else {
       throw error;
@@ -99,11 +105,16 @@ export async function addToCart(
     cart = await prisma.cart.upsert({
       where,
       update: { updatedAt: new Date() },
-      create: userId ? { userId } : { sessionId },
+      create: userId ? { userId, sessionId: null } : { sessionId },
     });
   } catch (error: unknown) {
     if ((error as { code?: string })?.code === 'P2002') {
-      cart = await prisma.cart.findUnique({ where });
+      // Fallback: find any cart for this user
+      cart = await prisma.cart.findFirst({
+        where: userId
+          ? { OR: [{ userId }, { sessionId: sessionId || undefined }] }
+          : { sessionId },
+      });
       if (!cart) throw error;
     } else {
       throw error;
