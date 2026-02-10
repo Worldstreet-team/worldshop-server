@@ -69,7 +69,10 @@ export async function getOrCreateCart(
     // 3. Still nothing? Create fresh user cart
     if (!cart) {
       cart = await prisma.cart.create({
-        data: { userId },
+        data: { 
+          userId, 
+          sessionId: `user_${userId}` 
+        },
         include,
       });
     }
@@ -140,7 +143,13 @@ export async function addToCart(
     // Authenticated user: find by userId
     cart = await prisma.cart.findUnique({ where: { userId } });
     if (!cart) {
-      cart = await prisma.cart.create({ data: { userId } });
+      // Use unique sessionId to avoid MongoDB null conflicts
+      cart = await prisma.cart.create({ 
+        data: { 
+          userId, 
+          sessionId: `user_${userId}` 
+        } 
+      });
     }
   } else {
     // Guest: find by sessionId
@@ -340,7 +349,10 @@ export async function mergeCart(
 
   if (!userCart) {
     userCart = await prisma.cart.create({
-      data: { userId },
+      data: { 
+        userId, 
+        sessionId: `user_${userId}` 
+      },
     });
   }
 
