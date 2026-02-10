@@ -22,7 +22,6 @@ export async function getOrCreateCart(
 
   // Upsert can still collide under heavy concurrency in MongoDB.
   // If it does, fall back to fetching the existing cart.
-  const where = userId ? { userId } : { sessionId: sessionId as string };
   const include = {
     items: {
       include: {
@@ -34,28 +33,63 @@ export async function getOrCreateCart(
   };
 
   let cart;
-  try {
-    cart = await prisma.cart.upsert({
-      where,
-      update: { updatedAt: new Date() },
-      create: userId ? { userId, sessionId: null } : { sessionId },
+
+  // =====================
+  // AUTHENTICATED USER
+  // =====================
+
+  if (userId) {
+    // 1. Try user cart
+    cart = await prisma.cart.findUnique({
+      where: { userId },
       include,
     });
-  } catch (error: unknown) {
-    if ((error as { code?: string })?.code === 'P2002') {
-      // Fallback: find any cart for this user
-      cart = await prisma.cart.findFirst({
-        where: userId
-          ? { OR: [{ userId }, { sessionId: sessionId || undefined }] }
-          : { sessionId },
+
+
+    // 2. If none, migrate guest cart (if exists)
+    if (!cart && sessionId) {
+      const guestCart = await prisma.cart.findUnique({
+        where: { sessionId },
+      });
+
+      if (guestCart) {
+        cart = await prisma.cart.update({
+          where: { id: guestCart.id },
+          data: {
+            userId,
+            sessionId: null,
+            updatedAt: new Date(),
+          },
+          include,
+        });
+      }
+    }
+
+    // 3. Still nothing? Create fresh user cart
+    if (!cart) {
+      cart = await prisma.cart.create({
+        data: { userId },
         include,
       });
-      if (!cart) throw error;
-    } else {
-      throw error;
     }
   }
 
+  // =====================
+  // GUEST USER
+  // =====================
+  else {
+    cart = await prisma.cart.findUnique({
+      where: { sessionId: sessionId as string },
+      include,
+    });
+
+    if (!cart) {
+      cart = await prisma.cart.create({
+        data: { sessionId },
+        include,
+      });
+    }
+  }
   return formatCartResponse(cart);
 }
 
@@ -434,11 +468,11 @@ function formatCartResponse(cart: {
       },
       variant: item.variant
         ? {
-            id: item.variant.id,
-            name: item.variant.name,
-            price: item.variant.price,
-            stock: item.variant.stock,
-          }
+          id: item.variant.id,
+          name: item.variant.name,
+          price: item.variant.price,
+          stock: item.variant.stock,
+        }
         : null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
