@@ -131,6 +131,8 @@ model Product {
   variants      ProductVariant[]
   cartItems     CartItem[]
   orderItems    OrderItem[]
+  reviews       Review[]
+  wishlistItems WishlistItem[]
 
   avgRating     Float            @default(0)
   reviewCount   Int              @default(0)
@@ -312,4 +314,54 @@ model Payment {
   paidAt      DateTime?
 
   @@index([userId])
+}
+
+// ============================================
+// REVIEWS
+// Product reviews by authenticated users.
+// One review per user per product. Auto-verified if user purchased the product.
+// ============================================
+
+model Review {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId  String   @db.ObjectId
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String   // maps to external auth user id
+  userName   String   // display name snapshot
+  rating     Int      // 1-5
+  title      String?
+  comment    String
+  isVerified Boolean  @default(false) // true if user has a DELIVERED order with this product
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId])
+  @@index([userId])
+}
+
+// ============================================
+// WISHLIST
+// One wishlist per user with multiple items.
+// ============================================
+
+model Wishlist {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String         @unique // maps to external auth user id
+  items     WishlistItem[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model WishlistItem {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  wishlistId String   @db.ObjectId
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  productId  String   @db.ObjectId
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  addedAt    DateTime @default(now())
+
+  @@unique([wishlistId, productId])
+  @@index([wishlistId])
 }

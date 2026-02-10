@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 9, 2026  
-**Version:** 0.6.2  
+**Last Updated:** February 10, 2026  
+**Version:** 0.7.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -413,15 +413,14 @@
 
 #### Review Models
 
-- [ ] **Review** - Product reviews
-  - [ ] id, productId, userId, orderId
-  - [ ] rating (1-5), title, comment
-  - [ ] isVerifiedPurchase
-  - [ ] helpfulCount, reportCount
-  - [ ] status (PENDING, APPROVED, REJECTED)
-  - [ ] timestamps
+- [x] **Review** - Product reviews ✅
+  - [x] id, productId, userId, userName
+  - [x] rating (1-5), title, comment
+  - [x] isVerified (auto-verified if DELIVERED order exists)
+  - [x] @@unique([productId, userId]) — one review per user per product
+  - [x] timestamps
 
-- [ ] **ReviewImage** - Review images
+- [ ] **ReviewImage** - Review images (deferred to Cloudflare phase)
   - [ ] id, reviewId, url, cloudflareId
 
 #### User-Related Models
@@ -432,14 +431,15 @@
   - [x] isDefault
   - [x] Nigerian states only, max 5 per user
 
-- [ ] **Wishlist** - User wishlists
-  - [ ] id, userId
-  - [ ] Relationship: WishlistItems
+- [x] **Wishlist** - User wishlists ✅
+  - [x] id, userId (@unique)
+  - [x] Relationship: WishlistItems
 
-- [ ] **WishlistItem** - Wishlist items
-  - [ ] id, wishlistId, productId
-  - [ ] addedAt
-  - [ ] Relationship: Wishlist, Product
+- [x] **WishlistItem** - Wishlist items ✅
+  - [x] id, wishlistId, productId
+  - [x] addedAt
+  - [x] @@unique([wishlistId, productId])
+  - [x] Relationship: Wishlist, Product
 
 #### Vendor Models (Future)
 
@@ -485,8 +485,8 @@
 - [x] `GET /api/products/brands` - Get available brands
 
 - [ ] `GET /api/products/:id/variants` - Get product variants
-- [ ] `GET /api/products/:id/reviews` - Get product reviews
-- [ ] `POST /api/products/:id/reviews` - Add review (Auth)
+- [x] `GET /api/products/:id/reviews` - Get product reviews ✅
+- [x] `POST /api/products/:id/reviews` - Add review (Auth) ✅
 - [ ] `GET /api/products/new-arrivals` - Get new products
 - [ ] `GET /api/products/best-sellers` - Get popular products
 
@@ -573,14 +573,17 @@
 - [ ] `GET /api/admin/inventory/history` - Inventory logs
 - [ ] Bulk inventory import (CSV)
 
-### Phase 14: Review Management API
+### Phase 14: Review Management API ✅ (Customer-Facing)
 
-- [ ] `GET /api/reviews/product/:productId` - Get product reviews
-- [ ] `POST /api/reviews` - Submit review (auth, verified purchase)
-- [ ] `PUT /api/reviews/:id` - Update review (auth)
-- [ ] `DELETE /api/reviews/:id` - Delete review (auth/admin)
-- [ ] `POST /api/reviews/:id/helpful` - Mark review helpful
-- [ ] `POST /api/reviews/:id/report` - Report review
+- [x] `GET /api/v1/products/:productId/reviews` - Get product reviews (public, paginated, filterable by rating, sortable)
+- [x] `GET /api/v1/products/:productId/reviews/summary` - Get review summary with rating distribution (public)
+- [x] `GET /api/v1/products/:productId/reviews/mine` - Get current user's review (auth)
+- [x] `POST /api/v1/products/:productId/reviews` - Submit review (auth, auto-verify if purchased)
+- [x] `PUT /api/v1/products/:productId/reviews/:reviewId` - Update own review (auth)
+- [x] `DELETE /api/v1/products/:productId/reviews/:reviewId` - Delete own review (auth)
+- [x] Auto-recalculates `Product.avgRating` and `Product.reviewCount` on create/update/delete
+- [ ] `POST /api/reviews/:id/helpful` - Mark review helpful (future)
+- [ ] `POST /api/reviews/:id/report` - Report review (future)
 
 #### Admin Endpoints
 
@@ -596,12 +599,13 @@
 - [x] `DELETE /api/v1/addresses/:id` - Delete address (auth, cannot delete default)
 - [x] `PATCH /api/v1/addresses/:id/default` - Set default address (auth)
 
-### Phase 16: Wishlist API
+### Phase 16: Wishlist API ✅
 
-- [ ] `GET /api/wishlist` - Get user wishlist (auth)
-- [ ] `POST /api/wishlist/items` - Add to wishlist (auth)
-- [ ] `DELETE /api/wishlist/items/:productId` - Remove from wishlist (auth)
-- [ ] `POST /api/wishlist/items/:id/move-to-cart` - Move to cart (auth)
+- [x] `GET /api/v1/wishlist` - Get user wishlist with product details (auth)
+- [x] `POST /api/v1/wishlist/items` - Add to wishlist (auth)
+- [x] `DELETE /api/v1/wishlist/items/:productId` - Remove from wishlist (auth)
+- [x] `GET /api/v1/wishlist/check/:productId` - Check if product is in wishlist (auth)
+- [ ] `POST /api/wishlist/items/:id/move-to-cart` - Move to cart (future)
 
 ### Phase 17: Brand Management API
 
@@ -808,6 +812,26 @@ Legend:
 | `PATCH`  | `/api/v1/profile`   | Update user profile  | Auth     |
 | `GET`    | `/debug-sentry`     | Test Sentry          | Dev Only |
 
+#### Products — Reviews (Service 9) ✅
+
+| Method   | Endpoint                                        | Description                 | Auth     |
+| -------- | ----------------------------------------------- | --------------------------- | -------- |
+| `GET`    | `/api/v1/products/:productId/reviews`           | List reviews (paginated)    | Public   |
+| `GET`    | `/api/v1/products/:productId/reviews/summary`   | Review summary + distribution | Public |
+| `GET`    | `/api/v1/products/:productId/reviews/mine`      | Get own review              | Auth     |
+| `POST`   | `/api/v1/products/:productId/reviews`           | Create review               | Auth     |
+| `PUT`    | `/api/v1/products/:productId/reviews/:reviewId` | Update own review           | Auth     |
+| `DELETE` | `/api/v1/products/:productId/reviews/:reviewId` | Delete own review           | Auth     |
+
+#### Wishlist (Service 10) ✅
+
+| Method   | Endpoint                                | Description                  | Auth |
+| -------- | --------------------------------------- | ---------------------------- | ---- |
+| `GET`    | `/api/v1/wishlist`                      | Get user wishlist            | Auth |
+| `POST`   | `/api/v1/wishlist/items`                | Add product to wishlist      | Auth |
+| `DELETE` | `/api/v1/wishlist/items/:productId`     | Remove from wishlist         | Auth |
+| `GET`    | `/api/v1/wishlist/check/:productId`     | Check if in wishlist         | Auth |
+
 ### Planned Endpoints (⏳ To Be Built)
 
 #### Products
@@ -920,11 +944,11 @@ The following 16+ models need to be added to `prisma/schema.prisma`:
 14. **OrderStatusHistory** - Order status change audit trail
 15. **Payment** - Payment records (Paystack integration)
 16. **Refund** - Refund tracking and processing
-17. **Review** - Product reviews and ratings
-18. **ReviewImage** - Review images
-19. **Address** - User shipping and billing addresses
-20. **Wishlist** - User wishlists
-21. **WishlistItem** - Wishlist items
+17. **Review** - Product reviews ✅
+18. **ReviewImage** - Review images (deferred)
+19. **Address** - User shipping and billing addresses ✅
+20. **Wishlist** - User wishlists ✅
+21. **WishlistItem** - Wishlist items ✅
 22. **Vendor** (Future) - Multi-vendor support
 23. **Coupon** (Future) - Discount codes
 24. **ShippingRate** (Future) - Shipping calculation
