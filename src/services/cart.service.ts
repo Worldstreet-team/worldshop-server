@@ -20,9 +20,11 @@ export async function getOrCreateCart(
     throw createError(400, 'Either userId or sessionId is required');
   }
 
-  // Try to find existing cart
-  let cart = await prisma.cart.findFirst({
+  // Upsert avoids race conditions for unique userId/sessionId
+  const cart = await prisma.cart.upsert({
     where: userId ? { userId } : { sessionId },
+    update: { updatedAt: new Date() },
+    create: userId ? { userId } : { sessionId },
     include: {
       items: {
         include: {
@@ -33,21 +35,6 @@ export async function getOrCreateCart(
       },
     },
   });
-
-  // Create new cart if not found
-  if (!cart) {
-    cart = await prisma.cart.create({
-      data: userId ? { userId } : { sessionId },
-      include: {
-        items: {
-          include: {
-            product: true,
-            variant: true,
-          },
-        },
-      },
-    });
-  }
 
   return formatCartResponse(cart);
 }
@@ -91,16 +78,12 @@ export async function addToCart(
     throw createError(400, `Only ${availableStock} items available in stock`);
   }
 
-  // Get or create cart
-  let cart = await prisma.cart.findFirst({
+  // Get or create cart (upsert to prevent unique constraint races)
+  const cart = await prisma.cart.upsert({
     where: userId ? { userId } : { sessionId },
+    update: { updatedAt: new Date() },
+    create: userId ? { userId } : { sessionId },
   });
-
-  if (!cart) {
-    cart = await prisma.cart.create({
-      data: userId ? { userId } : { sessionId },
-    });
-  }
 
   // Check if item already exists in cart
   const existingItem = await prisma.cartItem.findFirst({
