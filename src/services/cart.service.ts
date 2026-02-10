@@ -20,21 +20,35 @@ export async function getOrCreateCart(
     throw createError(400, 'Either userId or sessionId is required');
   }
 
-  // Upsert avoids race conditions for unique userId/sessionId
-  const cart = await prisma.cart.upsert({
-    where: userId ? { userId } : { sessionId },
-    update: { updatedAt: new Date() },
-    create: userId ? { userId } : { sessionId },
-    include: {
-      items: {
-        include: {
-          product: true,
-          variant: true,
-        },
-        orderBy: { createdAt: 'desc' },
+  // Upsert can still collide under heavy concurrency in MongoDB.
+  // If it does, fall back to fetching the existing cart.
+  const where = userId ? { userId } : { sessionId: sessionId as string };
+  const include = {
+    items: {
+      include: {
+        product: true,
+        variant: true,
       },
+      orderBy: { createdAt: 'desc' },
     },
-  });
+  };
+
+  let cart;
+  try {
+    cart = await prisma.cart.upsert({
+      where,
+      update: { updatedAt: new Date() },
+      create: userId ? { userId } : { sessionId },
+      include,
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      cart = await prisma.cart.findUnique({ where, include });
+      if (!cart) throw error;
+    } else {
+      throw error;
+    }
+  }
 
   return formatCartResponse(cart);
 }
@@ -78,12 +92,23 @@ export async function addToCart(
     throw createError(400, `Only ${availableStock} items available in stock`);
   }
 
-  // Get or create cart (upsert to prevent unique constraint races)
-  const cart = await prisma.cart.upsert({
-    where: userId ? { userId } : { sessionId },
-    update: { updatedAt: new Date() },
-    create: userId ? { userId } : { sessionId },
-  });
+  // Get or create cart (upsert with fallback on unique constraint race)
+  const where = userId ? { userId } : { sessionId: sessionId as string };
+  let cart;
+  try {
+    cart = await prisma.cart.upsert({
+      where,
+      update: { updatedAt: new Date() },
+      create: userId ? { userId } : { sessionId },
+    });
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      cart = await prisma.cart.findUnique({ where });
+      if (!cart) throw error;
+    } else {
+      throw error;
+    }
+  }
 
   // Check if item already exists in cart
   const existingItem = await prisma.cartItem.findFirst({
