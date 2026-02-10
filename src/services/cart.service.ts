@@ -53,11 +53,12 @@ export async function getOrCreateCart(
       });
 
       if (guestCart) {
+        // Migrate guest cart to user: use unique placeholder since MongoDB treats null as unique
         cart = await prisma.cart.update({
           where: { id: guestCart.id },
           data: {
             userId,
-            sessionId: null,
+            sessionId: `migrated_${userId}_${Date.now()}`,
             updatedAt: new Date(),
           },
           include,
@@ -132,26 +133,20 @@ export async function addToCart(
     throw createError(400, `Only ${availableStock} items available in stock`);
   }
 
-  // Get or create cart (upsert with fallback on unique constraint race)
-  const where = userId ? { userId } : { sessionId: sessionId as string };
+  // Get or create cart (find first, then create if not exists)
   let cart;
-  try {
-    cart = await prisma.cart.upsert({
-      where,
-      update: { updatedAt: new Date() },
-      create: userId ? { userId, sessionId: null } : { sessionId },
-    });
-  } catch (error: unknown) {
-    if ((error as { code?: string })?.code === 'P2002') {
-      // Fallback: find any cart for this user
-      cart = await prisma.cart.findFirst({
-        where: userId
-          ? { OR: [{ userId }, { sessionId: sessionId || undefined }] }
-          : { sessionId },
-      });
-      if (!cart) throw error;
-    } else {
-      throw error;
+
+  if (userId) {
+    // Authenticated user: find by userId
+    cart = await prisma.cart.findUnique({ where: { userId } });
+    if (!cart) {
+      cart = await prisma.cart.create({ data: { userId } });
+    }
+  } else {
+    // Guest: find by sessionId
+    cart = await prisma.cart.findUnique({ where: { sessionId: sessionId as string } });
+    if (!cart) {
+      cart = await prisma.cart.create({ data: { sessionId } });
     }
   }
 
