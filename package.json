@@ -4,7 +4,7 @@
   "description": "WorldStreet Shop backend API for auth middleware, profiles, and ecommerce services.",
   "main": "index.js",
   "scripts": {
-    "build": "npm run generate && tsc && npm run sentry:sourcemaps",
+    "build": "npm install && npm run generate && tsc && npm run sentry:sourcemaps",
     "start": "cross-env NODE_ENV=prod node dist/server.js",
     "prod": "npm run build && cross-env NODE_ENV=prod npm start",
     "dev": "npm run generate && nodemon --watch src -e ts --exec ts-node src/server.ts",
