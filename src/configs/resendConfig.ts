@@ -5,4 +5,4 @@
 import { Resend } from 'resend';
 import { RESEND_API_KEY } from './envConfig';
 
-export const resend = new Resend(RESEND_API_KEY);
+export const resend = new Resend(RESEND_API_KEY!);
