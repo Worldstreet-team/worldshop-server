@@ -29,7 +29,7 @@ export async function getOrCreateCart(
         product: true,
         variant: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' as const },
     },
   };
 
@@ -41,8 +41,8 @@ export async function getOrCreateCart(
       create: userId ? { userId } : { sessionId },
       include,
     });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if ((error as { code?: string })?.code === 'P2002') {
       cart = await prisma.cart.findUnique({ where, include });
       if (!cart) throw error;
     } else {
@@ -101,8 +101,8 @@ export async function addToCart(
       update: { updatedAt: new Date() },
       create: userId ? { userId } : { sessionId },
     });
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
+  } catch (error: unknown) {
+    if ((error as { code?: string })?.code === 'P2002') {
       cart = await prisma.cart.findUnique({ where });
       if (!cart) throw error;
     } else {
