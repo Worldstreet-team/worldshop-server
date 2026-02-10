@@ -5,7 +5,7 @@
  * - Failures are logged, never thrown — checkout must never break.
  * - Callers should trigger it asynchronously (non-blocking).
  */
-import { resend } from '../configs/resendConfig';
+import resend from '../configs/resendConfig';
 import { RESEND_FROM_EMAIL, CLIENT_URL } from '../configs/envConfig';
 import { globalLog as logger } from '../configs/loggerConfig';
 
