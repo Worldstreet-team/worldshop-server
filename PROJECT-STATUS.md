@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
 **Last Updated:** February 9, 2026  
-**Version:** 0.6.1  
+**Version:** 0.6.2  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -44,6 +44,11 @@
 - **winston:** 3.19.0 - Advanced logging
 - **winston-daily-rotate-file:** 5.0.0 - Log rotation
 - **@sentry/node:** 10.36.0 - Error monitoring
+
+### Email & Payments
+
+- **resend:** 6.9.1 - Transactional email service
+- **Paystack** - Payment gateway (NGN ₦)
 
 ### Dev Tools
 
@@ -624,14 +629,17 @@
 - [ ] Multiple image upload
 - [ ] Image CDN delivery
 
-### Phase 20: Email Notifications
+### Phase 20: Email Notifications (Partial) ✅
 
-- [ ] Order confirmation emails
+- [x] Order confirmation / receipt emails (Resend SDK)
+- [x] HTML receipt template (itemised, branded, responsive)
+- [x] Dedup via `Payment.metadata.receiptSentAt` — no duplicate emails
+- [x] Fire-and-forget — email failures never block checkout flow
 - [ ] Shipping update emails
 - [ ] Password reset emails
 - [ ] Welcome emails
 - [ ] Low stock alerts (admin)
-- [ ] Email templates
+- [ ] Email templates (generic base)
 
 ### Phase 21: Discount & Coupon System
 

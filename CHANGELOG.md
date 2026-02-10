@@ -4,6 +4,16 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.2] - 2026-02-09
+
+### Fixed — Resend Email Integration (Render Deploy)
+- `resendConfig.ts` simplified to direct `import { Resend } from 'resend'` (matches reference pattern)
+- Added `paths` mapping in `tsconfig.json` (`"resend": ["./node_modules/resend/dist/index.d.cts"]`) to resolve Resend SDK exports with default `node10` moduleResolution
+- Removed previous `require()` lazy-loading workaround and typed interface shim
+- Email receipt now fires from both `handleWebhook()` (primary) and `verifyPayment()` (fallback) via `sendReceiptIfNeeded()` dedup helper
+- Dedup prevents duplicate emails — checks `Payment.metadata.receiptSentAt` before sending
+- Build and runtime verified on Render.com
+
 ## [0.6.1] - 2026-02-09
 
 ### Added — Email Receipts (Resend)
