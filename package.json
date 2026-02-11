@@ -1,6 +1,6 @@
 {
   "name": "worldshop-server",
-  "version": "1.0.0",
+  "version": "0.8.0",
   "description": "WorldStreet Shop backend API for auth middleware, profiles, and ecommerce services.",
   "main": "index.js",
   "scripts": {
@@ -33,6 +33,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
     "@types/nanoid": "^3.0.0",
     "@types/node": "^25.0.10",
     "eslint": "^9.39.2",

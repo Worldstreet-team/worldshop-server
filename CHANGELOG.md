@@ -4,6 +4,52 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-02-12
+
+### Added — Phase 5: Admin Panel Backend
+
+#### Cloudflare R2 Image Upload
+- `src/configs/r2Config.ts` — S3Client configured for Cloudflare R2 (S3-compatible)
+- `src/services/upload.service.ts` — `uploadImage`, `uploadMultipleImages`, `deleteImage`, `deleteMultipleImages`, `extractKeyFromUrl`
+- `src/middlewares/upload.middleware.ts` — multer memory storage, 5MB limit, JPEG/PNG/WebP/GIF/SVG filter, `uploadProductImages` (max 10), `uploadCategoryImage` (single)
+- `src/controllers/upload.controller.ts` — `POST /admin/upload/images`, `DELETE /admin/upload/images`
+
+#### Admin Product CRUD
+- `src/validators/admin.product.validator.ts` — `createProductSchema`, `updateProductSchema`, `adminProductQuerySchema` (Zod v4)
+- `src/services/admin.product.service.ts` — `adminListProducts` (filter by status/stock/search, includes inactive), `createProduct` (unique slug generation, variants), `updateProduct` (slug regen, variant replace), `deleteProduct` (soft delete), `hardDeleteProduct`, `getDashboardStats`
+- `src/controllers/admin.product.controller.ts` — full CRUD handlers + dashboard stats endpoint
+
+#### Admin Category CRUD
+- `src/validators/admin.category.validator.ts` — `createCategorySchema`, `updateCategorySchema`, `adminCategoryQuerySchema`
+- `src/services/admin.category.service.ts` — `adminListCategories`, `createCategory` (unique slug), `updateCategory`, `deleteCategory` (soft delete, unlink children, optionally move products), `getCategoryById`
+- `src/controllers/admin.category.controller.ts` — full CRUD handlers
+
+#### Admin Routes
+- `src/routes/admin.routes.ts` — all routes behind `requireAuth` + `requireAdmin` middleware
+  - `GET /admin/dashboard/stats` — aggregate dashboard statistics
+  - `GET|POST /admin/products`, `GET|PUT|DELETE /admin/products/:id`
+  - `GET|POST /admin/categories`, `GET|PUT|DELETE /admin/categories/:id`
+  - `POST|DELETE /admin/upload/images`
+- Mounted at `/api/v1/admin` in `app.ts`
+
+### Technical Notes
+- Express 5 `req.params.id` returns `string | string[]` — used `as string` cast throughout
+- Zod v4 `z.record()` requires two arguments: `z.record(z.string(), z.string())`
+- Prisma `InputJsonValue` incompatible with `Record<string, unknown>[]` — solved via `JSON.parse(JSON.stringify())`
+
+## [0.7.1] - 2026-02-11
+
+### Fixed — Cart Unique Constraint Issues
+- MongoDB treats `null` as a unique value for unique constraints
+- Changed authenticated user cart creation to use `sessionId: "user_{userId}"` placeholder instead of `null`
+- Fixed cart migration to use unique placeholder `migrated_{userId}_{timestamp}` instead of `null`
+- Updated `getCartIdentifiers()` in cart controller to ignore sessionId entirely when user is authenticated
+- Applied fixes to `getOrCreateCart`, `addToCart`, and `mergeGuestCartToUser` functions
+- Resolved "Cart_sessionId_key unique constraint failed" errors for authenticated users
+
+### Changed
+- Cart service now uses find-then-create pattern instead of upsert for better control and error handling
+
 ## [0.7.0] - 2026-02-10
 
 ### Added — Service 9: Reviews (Customer-Facing)
