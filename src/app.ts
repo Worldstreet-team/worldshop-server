@@ -14,6 +14,7 @@ import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
 import reviewRoutes from './routes/review.routes';
 import wishlistRoutes from './routes/wishlist.routes';
+import adminRoutes from './routes/admin.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
@@ -70,6 +71,7 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
       payments: '/api/v1/payments',
       reviews: '/api/v1/products/:productId/reviews',
       wishlist: '/api/v1/wishlist',
+      admin: '/api/v1/admin',
     },
   });
 });
@@ -86,6 +88,7 @@ app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/products/:productId/reviews', reviewRoutes);
 app.use('/api/v1/wishlist', wishlistRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 app.get('/debug-sentry', (req, res) => {
   throw new Error('My first Sentry error!');

@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 10, 2026  
-**Version:** 0.7.0  
+**Last Updated:** February 11, 2026  
+**Version:** 0.7.1  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -289,6 +289,59 @@
   - [x] Environment variables: `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`
 
 - [x] **Payment Service**
+  - [x] `initializePayment` (ownership check, CREATED status guard, idempotent re-init)
+  - [x] `verifyPayment` (verify with Paystack, update Payment + Order in transaction)
+  - [x] `handleWebhook` (idempotent charge.success/failed handling)
+
+- [x] **Email Integration**
+  - [x] Resend service for transactional emails
+  - [x] Order receipt emails sent after successful payment
+  - [x] Deduplication prevents duplicate receipt emails
+
+### Phase 10: Reviews (Service 9) ✅
+
+- [x] **Review Prisma model**
+  - [x] productId, userId, userName, rating (1-5), title, comment, isVerified
+  - [x] `@@unique([productId, userId])` — one review per user per product
+  - [x] Auto-verifies if user has DELIVERED order
+
+- [x] **Review Service & API**
+  - [x] `getProductReviews` (paginated, filterable by rating, sortable)
+  - [x] `getReviewSummary` (avg rating + distribution)
+  - [x] `createReview`, `updateReview`, `deleteReview`
+  - [x] Auto-recalculates `Product.avgRating` and `Product.reviewCount`
+
+- [x] **Review Endpoints**
+  - [x] `GET /api/v1/products/:productId/reviews` (public)
+  - [x] `GET /api/v1/products/:productId/reviews/summary` (public)
+  - [x] `POST /api/v1/products/:productId/reviews` (auth)
+  - [x] `PUT /api/v1/products/:productId/reviews/:reviewId` (auth)
+  - [x] `DELETE /api/v1/products/:productId/reviews/:reviewId` (auth)
+
+### Phase 11: Wishlist (Service 10) ✅
+
+- [x] **Wishlist Prisma models**
+  - [x] `Wishlist` — userId @unique, one-to-many WishlistItem[]
+  - [x] `WishlistItem` — wishlistId, productId, addedAt
+  - [x] `@@unique([wishlistId, productId])` — prevents duplicates
+
+- [x] **Wishlist Service & API**
+  - [x] `getWishlist` (auto-create on first access with product details)
+  - [x] `addToWishlist`, `removeFromWishlist`, `isInWishlist`
+
+- [x] **Wishlist Endpoints**
+  - [x] `GET /api/v1/wishlist` (auth)
+  - [x] `POST /api/v1/wishlist/items` (auth)
+  - [x] `DELETE /api/v1/wishlist/items/:productId` (auth)
+  - [x] `GET /api/v1/wishlist/check/:productId` (auth)
+
+### Phase 12: Bug Fixes & Optimization ✅
+
+- [x] **Cart MongoDB Unique Constraint Fix**
+  - [x] Resolved `sessionId: null` unique constraint conflicts
+  - [x] Use `sessionId: "user_{userId}"` for authenticated users
+  - [x] Cart migration uses unique timestamps
+  - [x] Simplified cart creation logic (find-then-create pattern)
   - [x] `initializePayment` — ownership check, CREATED status guard, idempotent re-init for PENDING, Paystack API call, Payment record creation
   - [x] `verifyPayment` — verify with Paystack, update Payment (COMPLETED) + Order (PAID) in transaction
   - [x] `handleWebhook` — idempotent charge.success/charge.failed processing
