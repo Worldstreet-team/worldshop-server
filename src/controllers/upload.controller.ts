@@ -75,20 +75,23 @@ export const uploadDigitalFiles = catchAsync(async (req: Request, res: Response,
  */
 export const attachDigitalAssets = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const productId = req.params.id as string;
-  const { files } = req.body as { files: digitalAssetService.DigitalUploadResult[] };
+  const { files } = req.body as { files: digitalAssetService.DigitalUploadResult | digitalAssetService.DigitalUploadResult[] };
 
-  if (!files || !Array.isArray(files) || files.length === 0) {
-    res.status(400).json({ success: false, message: 'Provide an array of files to attach.' });
+  // Normalize: accept a single file object or an array of files
+  const filesArray = Array.isArray(files) ? files : files ? [files] : [];
+
+  if (filesArray.length === 0) {
+    res.status(400).json({ success: false, message: 'Provide at least one file to attach.' });
     return;
   }
 
-  await digitalAssetService.createDigitalAssets(productId, files);
+  await digitalAssetService.createDigitalAssets(productId, filesArray);
   const assets = await digitalAssetService.getProductDigitalAssets(productId);
 
   res.status(201).json({
     success: true,
     data: assets,
-    message: `${files.length} digital asset(s) attached.`,
+    message: `${filesArray.length} digital asset(s) attached.`,
   });
 });
 
