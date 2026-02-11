@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 // ─── Product Image shape ────────────────────────────────────────
 const productImageSchema = z.object({
-  url: z.string().url(),
+  url: z.string().refine(
+    (val) => val.startsWith('/') || /^https?:\/\/.+/.test(val),
+    { message: 'URL must be a valid absolute URL or a relative path starting with /' }
+  ),
   alt: z.string().max(200).default(''),
   isPrimary: z.boolean().default(false),
   sortOrder: z.number().int().min(0).default(0),

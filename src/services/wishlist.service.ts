@@ -1,6 +1,7 @@
 import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
 import type { WishlistResponse } from '../types/wishlist.types';
+import { signProductRecords } from '../utils/signUrl';
 
 /** Product fields to include in wishlist items */
 const productSelect = {
@@ -39,7 +40,14 @@ async function getOrCreateWishlist(userId: string) {
     });
   }
 
-  return wishlist as unknown as WishlistResponse;
+  // Sign product images for all wishlist items
+  const result = wishlist as unknown as WishlistResponse;
+  if (result.items && result.items.length > 0) {
+    const products = result.items.map((item: { product: { images?: unknown } }) => item.product);
+    await signProductRecords(products);
+  }
+
+  return result;
 }
 
 /**

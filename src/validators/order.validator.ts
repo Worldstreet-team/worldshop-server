@@ -17,7 +17,7 @@ export type ShippingAddressInput = z.infer<typeof shippingAddressSchema>;
 
 // ─── Create order from checkout ─────────────────────────────────
 export const createOrderSchema = z.object({
-  shippingAddress: shippingAddressSchema,
+  shippingAddress: shippingAddressSchema.optional(), // Optional for digital-only orders
   billingAddress: shippingAddressSchema.optional(),
   notes: z.string().max(500).optional(),
 });

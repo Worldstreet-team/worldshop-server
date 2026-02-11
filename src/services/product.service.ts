@@ -85,7 +85,7 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      include: { category: true, variants: true },
+      include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy,
       skip,
       take: limit,
@@ -102,7 +102,7 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
 export async function getProductBySlug(slug: string) {
   return prisma.product.findUnique({
     where: { slug },
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
   });
 }
 
@@ -112,7 +112,7 @@ export async function getProductBySlug(slug: string) {
 export async function getProductById(id: string) {
   return prisma.product.findUnique({
     where: { id },
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
   });
 }
 
@@ -122,7 +122,7 @@ export async function getProductById(id: string) {
 export async function getFeaturedProducts(limit: number = 8) {
   return prisma.product.findMany({
     where: { isActive: true, isFeatured: true },
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit,
   });
@@ -145,7 +145,7 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
       categoryId: product.categoryId,
       id: { not: productId },
     },
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
     take: limit,
   });
@@ -157,7 +157,7 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
         isActive: true,
         id: { notIn: [productId, ...related.map((r) => r.id)] },
       },
-      include: { category: true, variants: true },
+      include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy: { avgRating: 'desc' },
       take: limit - related.length,
     });
