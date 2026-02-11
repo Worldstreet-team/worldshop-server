@@ -8,6 +8,7 @@ import {
   updateProductSchema,
   adminProductQuerySchema,
 } from '../validators/admin.product.validator';
+import { signProductRecord, signProductRecords } from '../utils/signUrl';
 
 /**
  * GET /api/v1/admin/products
@@ -16,6 +17,7 @@ import {
 export const getProducts = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const query = adminProductQuerySchema.parse(req.query);
   const result = await adminProductService.adminListProducts(query);
+  result.data = await signProductRecords(result.data);
 
   res.status(200).json({
     success: true,
@@ -37,7 +39,7 @@ export const getProduct = catchAsync(async (req: Request, res: Response, next: N
 
   res.status(200).json({
     success: true,
-    data: product,
+    data: await signProductRecord(product),
   });
 });
 
@@ -51,7 +53,7 @@ export const createProduct = catchAsync(async (req: Request, res: Response, _nex
 
   res.status(201).json({
     success: true,
-    data: product,
+    data: await signProductRecord(product),
     message: 'Product created successfully.',
   });
 });
@@ -72,7 +74,7 @@ export const updateProduct = catchAsync(async (req: Request, res: Response, next
 
   res.status(200).json({
     success: true,
-    data: product,
+    data: await signProductRecord(product!),
     message: 'Product updated successfully.',
   });
 });

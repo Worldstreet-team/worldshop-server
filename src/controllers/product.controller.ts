@@ -3,6 +3,7 @@ import catchAsync from '../utils/catchAsync';
 import createError from 'http-errors';
 import * as productService from '../services/product.service';
 import { productQuerySchema, featuredQuerySchema, relatedQuerySchema, searchQuerySchema } from '../validators/product.validator';
+import { signProductRecord, signProductRecords } from '../utils/signUrl';
 
 /**
  * GET /api/v1/products
@@ -11,6 +12,7 @@ import { productQuerySchema, featuredQuerySchema, relatedQuerySchema, searchQuer
 export const getProducts = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const query = productQuerySchema.parse(req.query);
   const result = await productService.listProducts(query);
+  result.data = await signProductRecords(result.data);
 
   res.status(200).json({
     success: true,
@@ -28,7 +30,7 @@ export const getFeatured = catchAsync(async (req: Request, res: Response, _next:
 
   res.status(200).json({
     success: true,
-    data: products,
+    data: await signProductRecords(products),
   });
 });
 
@@ -42,7 +44,7 @@ export const searchProducts = catchAsync(async (req: Request, res: Response, _ne
 
   res.status(200).json({
     success: true,
-    data: products,
+    data: await signProductRecords(products),
   });
 });
 
@@ -86,7 +88,7 @@ export const getProductBySlug = catchAsync(async (req: Request, res: Response, n
 
   res.status(200).json({
     success: true,
-    data: product,
+    data: await signProductRecord(product),
   });
 });
 
@@ -104,7 +106,7 @@ export const getProductById = catchAsync(async (req: Request, res: Response, nex
 
   res.status(200).json({
     success: true,
-    data: product,
+    data: await signProductRecord(product),
   });
 });
 
@@ -119,6 +121,6 @@ export const getRelatedProducts = catchAsync(async (req: Request, res: Response,
 
   res.status(200).json({
     success: true,
-    data: products,
+    data: await signProductRecords(products),
   });
 });
