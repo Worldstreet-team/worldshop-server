@@ -99,7 +99,7 @@ export async function getCategoryById(id: string) {
 /**
  * getFeaturedCategories — Active categories with product count (for homepage).
  */
-export async function getFeaturedCategories(limit: number = 6) {
+export async function getFeaturedCategories(limit: number = 4) {
   const categories = await prisma.category.findMany({
     where: { isActive: true },
     include: { _count: { select: { products: true } } },
