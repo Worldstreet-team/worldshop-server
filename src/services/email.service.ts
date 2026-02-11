@@ -39,6 +39,13 @@ interface OrderReceiptData {
     country: string;
     phone: string;
   };
+  digitalDownloads?: {
+    fileName: string;
+    fileSize: number;
+    downloadUrl: string;
+    maxDownloads: number;
+    expiresAt: Date;
+  }[];
 }
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -236,6 +243,8 @@ function buildReceiptHTML(data: OrderReceiptData): string {
     </td>
   </tr>
 
+  ${buildDigitalDownloadsSection(data.digitalDownloads)}
+
   <!-- CTA -->
   <tr>
     <td style="padding:32px;text-align:center;">
@@ -265,6 +274,72 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
 </body>
 </html>`;
+}
+
+// ─── Digital Downloads Section (for mixed-order receipts) ──────
+
+function buildDigitalDownloadsSection(
+  downloads?: OrderReceiptData['digitalDownloads']
+): string {
+  if (!downloads || downloads.length === 0) return '';
+
+  const firstExpiry = new Date(downloads[0].expiresAt).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const fileRows = downloads
+    .map((dl) => {
+      const expiry = new Date(dl.expiresAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+      return `
+      <tr>
+        <td style="padding:12px 16px;border-bottom:1px solid #eee;">
+          <div>
+            <span style="font-size:16px;margin-right:6px;">📄</span>
+            <strong style="color:#111;font-size:13px;">${dl.fileName}</strong>
+            <span style="color:#888;font-size:11px;margin-left:4px;">(${formatFileSize(dl.fileSize)})</span>
+          </div>
+        </td>
+        <td style="padding:12px 8px;border-bottom:1px solid #eee;text-align:center;">
+          <span style="color:#666;font-size:11px;">${dl.maxDownloads} downloads<br/>Exp: ${expiry}</span>
+        </td>
+        <td style="padding:12px 16px;border-bottom:1px solid #eee;text-align:center;">
+          <a href="${dl.downloadUrl}" style="display:inline-block;background:linear-gradient(135deg,#c8a951,#e8d48b);color:#1a1a1a;padding:6px 14px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Download</a>
+        </td>
+      </tr>`;
+    })
+    .join('');
+
+  return `
+  <!-- Digital Downloads -->
+  <tr>
+    <td style="padding:24px 32px 0;">
+      <h3 style="margin:0 0 8px;font-size:14px;color:#666;text-transform:uppercase;">🎁 Your Digital Products</h3>
+      <div style="background:#fff8e1;border-left:4px solid #c8a951;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:16px;">
+        <p style="margin:0;color:#666;font-size:12px;line-height:1.4;">
+          <strong style="color:#333;">⚠️ Important:</strong> Each file can be downloaded up to <strong>${downloads[0]?.maxDownloads || 2} times</strong>.
+          Links expire on <strong>${firstExpiry}</strong>. Please save your files after downloading.
+        </p>
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <thead>
+          <tr style="background:#f8f9fa;">
+            <th style="padding:10px 16px;text-align:left;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">File</th>
+            <th style="padding:10px 8px;text-align:center;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Limit</th>
+            <th style="padding:10px 16px;text-align:center;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${fileRows}
+        </tbody>
+      </table>
+    </td>
+  </tr>`;
 }
 
 // ─── Digital Product Delivery ───────────────────────────────────

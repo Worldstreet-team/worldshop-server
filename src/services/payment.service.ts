@@ -130,7 +130,60 @@ async function sendReceiptIfNeeded(
       });
     }
   } else {
-    // For physical/mixed orders, send the general receipt and handle digital delivery if any
+    // For physical/mixed orders: create download records first, then include links in the receipt
+    let digitalDownloads: {
+      fileName: string;
+      fileSize: number;
+      downloadUrl: string;
+      maxDownloads: number;
+      expiresAt: Date;
+    }[] | undefined;
+
+    const hasDigitalItems = order.items.some((item) => item.product.type === 'DIGITAL');
+
+    if (hasDigitalItems) {
+      try {
+        try {
+          await createDownloadRecords(orderId, order.userId);
+        } catch (createErr) {
+          logger.warn('[Email] createDownloadRecords error (may be duplicate)', {
+            orderId,
+            error: (createErr as Error).message,
+          });
+        }
+
+        const orderItemIds = (
+          await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })
+        ).map((i) => i.id);
+
+        const downloads = await prisma.downloadRecord.findMany({
+          where: { userId: order.userId, orderItemId: { in: orderItemIds } },
+        });
+
+        if (downloads.length > 0) {
+          digitalDownloads = await Promise.all(
+            downloads.map(async (dl) => {
+              const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+              const downloadUrl = asset?.r2Key ? await signR2Key(asset.r2Key) : '';
+              return {
+                fileName: asset?.fileName || 'Unknown file',
+                fileSize: asset?.fileSize || 0,
+                downloadUrl,
+                maxDownloads: dl.maxDownloads,
+                expiresAt: dl.expiresAt,
+              };
+            })
+          );
+        }
+      } catch (err) {
+        logger.error('[Email] Failed to prepare digital downloads for receipt', {
+          orderId,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    // Send the general receipt with digital download links embedded
     void sendOrderReceipt({
       customerEmail,
       customerName,
@@ -151,6 +204,7 @@ async function sendReceiptIfNeeded(
       paymentChannel: paymentChannel || 'card',
       paidAt,
       shippingAddress: shippingAddr!,
+      digitalDownloads,
     }).then((sent) => {
       if (!sent) {
         return;
@@ -167,9 +221,6 @@ async function sendReceiptIfNeeded(
         });
       });
     });
-
-    // Also handle digital delivery for mixed orders
-    void handleDigitalDelivery(orderId, order.userId, customerEmail, customerName, order.orderNumber);
   }
 }
 
