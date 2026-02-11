@@ -4,6 +4,19 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-02-13
+
+### Changed — Admin Dashboard Stats Pagination
+
+#### Dashboard Stats Service
+- `src/services/admin.product.service.ts` — `getDashboardStats()` now accepts `(page, limit)` parameters for recent orders pagination; uses `skip`/`take` for paginated queries; added `prisma.order.count()` for total; returns `recentOrdersPagination` object (`page, limit, total, totalPages, hasPrevPage, hasNextPage`)
+
+#### Dashboard Stats Controller
+- `src/controllers/admin.product.controller.ts` — `getDashboardStats` handler now parses `req.query.page` and `req.query.limit` query parameters (clamped: min 1, max 50); passes parsed values to service function
+
+### Endpoints Changed
+- `GET /api/v1/admin/dashboard/stats` — now accepts `?page=1&limit=15` query params; response includes `recentOrdersPagination` alongside `recentOrders`
+
 ## [0.9.0] - 2026-02-12
 
 ### Added — R2 Signed URLs & Digital Products System

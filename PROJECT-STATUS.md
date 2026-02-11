@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 12, 2026  
-**Version:** 0.9.0  
+**Last Updated:** February 13, 2026  
+**Version:** 0.10.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -385,10 +385,18 @@
 
 - [x] **Admin Routes**
   - [x] All behind `requireAuth` + `requireAdmin` middleware
-  - [x] `GET /admin/dashboard/stats` — aggregate dashboard statistics
+  - [x] `GET /admin/dashboard/stats` — aggregate dashboard statistics (paginated recent orders via `?page=&limit=`)
   - [x] Product CRUD: `GET|POST /admin/products`, `GET|PUT|DELETE /admin/products/:id`
   - [x] Category CRUD: `GET|POST /admin/categories`, `GET|PUT|DELETE /admin/categories/:id`
   - [x] Upload: `POST|DELETE /admin/upload/images`
+
+### Phase 16: Admin Dashboard Pagination ✅
+
+- [x] **Dashboard Stats Pagination**
+  - [x] `getDashboardStats(page, limit)` — accepts pagination parameters
+  - [x] Recent orders use `skip`/`take` for server-side pagination (default 15 per page)
+  - [x] Returns `recentOrdersPagination` object (`page, limit, total, totalPages, hasPrevPage, hasNextPage`)
+  - [x] Controller parses and clamps `?page=` and `?limit=` query params (min 1, max 50)
 
 ### Phase 14: R2 Signed URLs ✅
 

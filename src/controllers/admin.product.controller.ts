@@ -103,7 +103,9 @@ export const deleteProduct = catchAsync(async (req: Request, res: Response, next
  * Dashboard overview statistics.
  */
 export const getDashboardStats = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const stats = await adminProductService.getDashboardStats();
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 15));
+  const stats = await adminProductService.getDashboardStats(page, limit);
 
   res.status(200).json({
     success: true,

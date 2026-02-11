@@ -179,7 +179,9 @@ export async function hardDeleteProduct(id: string) {
 /**
  * getDashboardStats — Returns overview statistics for the admin dashboard.
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(page = 1, limit = 15) {
+  const skip = (page - 1) * limit;
+
   const [
     totalProducts,
     activeProducts,
@@ -188,6 +190,7 @@ export async function getDashboardStats() {
     totalOrders,
     totalRevenue,
     recentOrders,
+    recentOrdersTotal,
     totalCategories,
   ] = await Promise.all([
     prisma.product.count(),
@@ -198,7 +201,8 @@ export async function getDashboardStats() {
     prisma.order.aggregate({ _sum: { total: true }, where: { status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] } } }),
     prisma.order.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      skip,
+      take: limit,
       include: {
         items: {
           select: {
@@ -209,6 +213,7 @@ export async function getDashboardStats() {
         },
       },
     }),
+    prisma.order.count(),
     prisma.category.count({ where: { isActive: true } }),
   ]);
 
@@ -242,5 +247,13 @@ export async function getDashboardStats() {
     totalRevenue: totalRevenue._sum.total || 0,
     totalCategories,
     recentOrders: mappedOrders,
+    recentOrdersPagination: {
+      page,
+      limit,
+      total: recentOrdersTotal,
+      totalPages: Math.ceil(recentOrdersTotal / limit),
+      hasPrevPage: page > 1,
+      hasNextPage: page * limit < recentOrdersTotal,
+    },
   };
 }
