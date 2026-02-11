@@ -199,10 +199,39 @@ export async function getDashboardStats() {
     prisma.order.findMany({
       orderBy: { createdAt: 'desc' },
       take: 10,
-      include: { items: true },
+      include: {
+        items: {
+          select: {
+            productName: true,
+            quantity: true,
+            unitPrice: true,
+          },
+        },
+      },
     }),
     prisma.category.count({ where: { isActive: true } }),
   ]);
+
+  // Map recent orders with customer name from shippingAddress JSON
+  const mappedOrders = recentOrders.map((order) => {
+    const shipping = order.shippingAddress as Record<string, unknown> | null;
+    const customerName = shipping
+      ? `${shipping.firstName || ''} ${shipping.lastName || ''}`.trim()
+      : null;
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      total: order.total,
+      customerName,
+      createdAt: order.createdAt,
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    };
+  });
 
   return {
     totalProducts,
@@ -212,6 +241,6 @@ export async function getDashboardStats() {
     totalOrders,
     totalRevenue: totalRevenue._sum.total || 0,
     totalCategories,
-    recentOrders,
+    recentOrders: mappedOrders,
   };
 }
