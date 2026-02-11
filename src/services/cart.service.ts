@@ -493,9 +493,15 @@ async function formatCartResponse(cart: {
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
 
-  // Shipping: free over threshold, else flat rate
-  const shipping =
-    subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING.FLAT_RATE;
+  // Digital-only carts get free shipping; otherwise flat rate unless above threshold
+  const isDigitalOnly = cart.items.every(
+    (item) => (item.product as { type?: string }).type === 'DIGITAL'
+  );
+  const shipping = isDigitalOnly
+    ? 0
+    : subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD
+      ? 0
+      : SHIPPING.FLAT_RATE;
 
   // No discount logic in this phase
   const discount = 0;

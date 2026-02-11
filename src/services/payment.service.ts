@@ -58,7 +58,11 @@ async function sendReceiptIfNeeded(
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { items: true },
+    include: {
+      items: {
+        include: { product: { select: { type: true } } },
+      },
+    },
   });
 
   if (!order) {
@@ -78,7 +82,7 @@ async function sendReceiptIfNeeded(
     state: string;
     country: string;
     phone: string;
-  };
+  } | null;
 
   const customerEmail = profile?.email || fallbackEmail || '';
   if (!customerEmail) {
@@ -89,32 +93,19 @@ async function sendReceiptIfNeeded(
     return;
   }
 
-  void sendOrderReceipt({
-    customerEmail,
-    customerName: shippingAddr.firstName || profile?.firstName || 'Customer',
-    orderNumber: order.orderNumber,
-    orderId: order.id,
-    items: order.items.map((item) => ({
-      productName: item.productName,
-      variantName: item.variantName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      productImage: item.productImage,
-    })),
-    subtotal: order.subtotal,
-    shipping: order.shipping,
-    discount: order.discount,
-    total: order.total,
-    paymentChannel: paymentChannel || 'card',
-    paidAt,
-    shippingAddress: shippingAddr,
-  }).then((sent) => {
-    if (!sent) {
-      return;
-    }
+  const customerName = profile?.firstName || shippingAddr?.firstName || 'Customer';
 
-    return prisma.payment.update({
+  // Check if this order contains only digital products
+  const isDigitalOnly = order.items.every(
+    (item) => item.product.type === 'DIGITAL'
+  );
+
+  if (isDigitalOnly) {
+    // For digital-only orders, skip the general receipt and send digital delivery email directly
+    void handleDigitalDelivery(orderId, order.userId, customerEmail, customerName, order.orderNumber);
+
+    // Mark receipt as sent to prevent duplicates
+    void prisma.payment.update({
       where: { id: paymentRecord.id },
       data: {
         metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
@@ -124,10 +115,48 @@ async function sendReceiptIfNeeded(
         paymentId: paymentRecord.id,
       });
     });
-  });
+  } else {
+    // For physical/mixed orders, send the general receipt and handle digital delivery if any
+    void sendOrderReceipt({
+      customerEmail,
+      customerName,
+      orderNumber: order.orderNumber,
+      orderId: order.id,
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        productImage: item.productImage,
+      })),
+      subtotal: order.subtotal,
+      shipping: order.shipping,
+      discount: order.discount,
+      total: order.total,
+      paymentChannel: paymentChannel || 'card',
+      paidAt,
+      shippingAddress: shippingAddr!,
+    }).then((sent) => {
+      if (!sent) {
+        return;
+      }
 
-  // Create download records and send digital delivery email for digital products
-  void handleDigitalDelivery(orderId, order.userId, customerEmail, profile?.firstName || shippingAddr.firstName || 'Customer', order.orderNumber);
+      return prisma.payment.update({
+        where: { id: paymentRecord.id },
+        data: {
+          metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
+        },
+      }).catch(() => {
+        logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+          paymentId: paymentRecord.id,
+        });
+      });
+    });
+
+    // Also handle digital delivery for mixed orders
+    void handleDigitalDelivery(orderId, order.userId, customerEmail, customerName, order.orderNumber);
+  }
 }
 
 /**

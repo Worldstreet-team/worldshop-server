@@ -342,6 +342,7 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
           month: 'long',
           day: 'numeric',
         });
+        const downloadLink = `${downloadsUrl}?download=${dl.downloadId}`;
 
         return `
         <tr>
@@ -361,6 +362,9 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
           </td>
           <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
             <span style="color:#666;font-size:12px;">Expires: ${expiry}</span>
+          </td>
+          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
+            <a href="${downloadLink}" style="display:inline-block;background:linear-gradient(135deg,#c8a951,#e8d48b);color:#1a1a1a;padding:8px 16px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Download</a>
           </td>
         </tr>`;
       }
@@ -421,6 +425,7 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
             <th style="padding:12px 16px;text-align:left;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">File</th>
             <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Limit</th>
             <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Expiry</th>
+            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Action</th>
           </tr>
         </thead>
         <tbody>
