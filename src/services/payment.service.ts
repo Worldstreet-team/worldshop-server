@@ -171,12 +171,31 @@ async function handleDigitalDelivery(
   orderNumber: string,
 ): Promise<void> {
   try {
-    // Create download records for any digital products
-    await createDownloadRecords(orderId, userId);
+    // Create download records for any digital products (ignore duplicates on retry)
+    try {
+      await createDownloadRecords(orderId, userId);
+      logger.info('[DigitalDelivery] Download records created', { orderId, orderNumber });
+    } catch (createErr) {
+      // Duplicates from webhook+verify race are expected — continue to query & send email
+      logger.warn('[DigitalDelivery] createDownloadRecords error (may be duplicate)', {
+        orderId,
+        error: (createErr as Error).message,
+      });
+    }
 
     // Check if there are any digital items in this order
+    const orderItemIds = (
+      await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })
+    ).map((i) => i.id);
+
     const downloads = await prisma.downloadRecord.findMany({
-      where: { userId, orderItemId: { in: (await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })).map(i => i.id) } },
+      where: { userId, orderItemId: { in: orderItemIds } },
+    });
+
+    logger.info('[DigitalDelivery] Found download records', {
+      orderId,
+      orderNumber,
+      count: downloads.length,
     });
 
     if (downloads.length > 0) {
@@ -194,17 +213,34 @@ async function handleDigitalDelivery(
         })
       );
 
-      void sendDigitalProductDelivery({
+      const sent = await sendDigitalProductDelivery({
         customerEmail,
         customerName,
         orderNumber,
         downloads: downloadInfo,
       });
+
+      logger.info('[DigitalDelivery] Email send result', {
+        orderId,
+        orderNumber,
+        sent,
+        to: customerEmail,
+        fileCount: downloadInfo.length,
+      });
+    } else {
+      logger.warn('[DigitalDelivery] No download records found — email not sent', {
+        orderId,
+        orderNumber,
+        userId,
+        orderItemIds,
+      });
     }
   } catch (err) {
     logger.error('[DigitalDelivery] Failed to process digital delivery', {
       orderId,
+      orderNumber,
       error: (err as Error).message,
+      stack: (err as Error).stack,
     });
   }
 }
