@@ -1,7 +1,7 @@
 # WorldShop Server - Project Status
 
-**Last Updated:** February 11, 2026  
-**Version:** 0.7.1  
+**Last Updated:** February 12, 2026  
+**Version:** 0.9.0  
 **Framework:** Node.js + Express + TypeScript + Prisma + MongoDB
 
 ---
@@ -50,6 +50,12 @@
 - **resend:** 6.9.1 - Transactional email service
 - **Paystack** - Payment gateway (NGN ₦)
 
+### File Storage & CDN
+
+- **@aws-sdk/client-s3** - Cloudflare R2 (S3-compatible) file uploads
+- **@aws-sdk/s3-request-presigner** - Presigned URL generation for secure file access
+- **multer** - Multipart file upload handling (memory storage)
+
 ### Dev Tools
 
 - **ESLint:** 9.39.2 - Code linting
@@ -69,16 +75,22 @@
 
 ### Configuration Layer (`/src/configs/`)
 
-- **envConfig.ts** - Environment variable management (incl. JWT secrets, CLIENT_URL)
+- **envConfig.ts** - Environment variable management (incl. JWT secrets, CLIENT_URL, R2 credentials)
 - **prismaConfig.ts** - Prisma client singleton with connection pooling
 - **loggerConfig.ts** - Winston logger configuration with daily rotation
 - **sentryConfig.ts** - Sentry error monitoring setup
 - **rateLimitConfig.ts** - Rate limiting configuration
+- **paystackConfig.ts** - Paystack API helpers (initialize, verify, webhook HMAC)
+- **resendConfig.ts** - Resend email client instance
+- **r2Config.ts** - Cloudflare R2 S3Client configuration
 
 ### Utility Functions (`/src/utils/`)
 
 - **catchAsync.ts** - Async error wrapper for controllers
 - **health.ts** - Health check endpoint with uptime formatting
+- **slugify.ts** - URL slug generation
+- **pagination.ts** - Pagination helpers
+- **signUrl.ts** - R2 presigned URL generation (signR2Key, signProductImages, etc.)
 
 ### Middleware (`/src/middlewares/`)
 
@@ -342,6 +354,8 @@
   - [x] Use `sessionId: "user_{userId}"` for authenticated users
   - [x] Cart migration uses unique timestamps
   - [x] Simplified cart creation logic (find-then-create pattern)
+
+- [x] **Payment Service**
   - [x] `initializePayment` — ownership check, CREATED status guard, idempotent re-init for PENDING, Paystack API call, Payment record creation
   - [x] `verifyPayment` — verify with Paystack, update Payment (COMPLETED) + Order (PAID) in transaction
   - [x] `handleWebhook` — idempotent charge.success/charge.failed processing
@@ -350,6 +364,85 @@
   - [x] `POST /api/v1/payments/initialize` — initialize Paystack payment (auth required)
   - [x] `GET /api/v1/payments/verify/:reference` — verify payment (auth required)
   - [x] `POST /api/v1/payments/webhook` — Paystack webhook (HMAC verified, no auth)
+
+### Phase 13: Admin Panel Backend ✅
+
+- [x] **Cloudflare R2 Image Upload**
+  - [x] `r2Config.ts` — S3Client configured for Cloudflare R2 (S3-compatible)
+  - [x] `upload.service.ts` — `uploadImage`, `uploadMultipleImages`, `deleteImage`, `deleteMultipleImages`
+  - [x] `upload.middleware.ts` — multer memory storage, 5MB limit, image filter
+  - [x] `upload.controller.ts` — `POST /admin/upload/images`, `DELETE /admin/upload/images`
+
+- [x] **Admin Product CRUD**
+  - [x] `admin.product.validator.ts` — create/update/query schemas (Zod v4)
+  - [x] `admin.product.service.ts` — list, create (unique slug), update, soft delete, hard delete, dashboard stats
+  - [x] `admin.product.controller.ts` — full CRUD handlers + dashboard stats
+
+- [x] **Admin Category CRUD**
+  - [x] `admin.category.validator.ts` — create/update/query schemas
+  - [x] `admin.category.service.ts` — list, create, update, soft delete
+  - [x] `admin.category.controller.ts` — full CRUD handlers
+
+- [x] **Admin Routes**
+  - [x] All behind `requireAuth` + `requireAdmin` middleware
+  - [x] `GET /admin/dashboard/stats` — aggregate dashboard statistics
+  - [x] Product CRUD: `GET|POST /admin/products`, `GET|PUT|DELETE /admin/products/:id`
+  - [x] Category CRUD: `GET|POST /admin/categories`, `GET|PUT|DELETE /admin/categories/:id`
+  - [x] Upload: `POST|DELETE /admin/upload/images`
+
+### Phase 14: R2 Signed URLs ✅
+
+- [x] **Signed URL Utility**
+  - [x] `signUrl.ts` — `signR2Key`, `signProductImages`, `signProductListImages`, `signOrderImages`, `signCartImages`, `signWishlistImages`
+  - [x] R2 keys stored in DB, signed on response — URLs auto-expire
+
+- [x] **Applied Across All Controllers**
+  - [x] Product controller (list, detail, featured, related, search)
+  - [x] Admin product controller (list, detail, create, update)
+  - [x] Cart service (cart items with product images)
+  - [x] Wishlist service (wishlist items with product images)
+  - [x] Order service (order items with product snapshots)
+
+- [x] **Upload Service Update**
+  - [x] Returns `{ key, signedUrl }` instead of `{ url, key }`
+  - [x] Zod validation updated to accept relative R2 keys
+
+### Phase 15: Digital Products System ✅
+
+- [x] **Digital Asset Model**
+  - [x] `DigitalAsset` — id, productId, fileName, r2Key, mimeType, fileSize, sortOrder, createdAt
+  - [x] Product `type` field: `PHYSICAL` | `DIGITAL` (default `PHYSICAL`)
+  - [x] `digitalAssets` relation on Product model
+
+- [x] **Download Record Model**
+  - [x] `DownloadRecord` — id, assetId, orderId, orderItemId, userId, downloadCount, maxDownloads (2), expiresAt (7 days)
+  - [x] Tracks first/last download timestamps
+
+- [x] **Digital Asset Service**
+  - [x] `uploadDigitalFiles` — upload to R2 `digital-assets/` prefix
+  - [x] `getProductDigitalAssets`, `attachAssetsToProduct`, `deleteDigitalAsset`
+
+- [x] **Download Service**
+  - [x] `createDownloadRecords` — auto-creates records post-payment
+  - [x] `getUserDownloads` — paginated with signed URLs
+  - [x] `getOrderDownloads` — downloads for specific order
+  - [x] `generateDownloadUrl` — enforces 2-download limit and 7-day expiry
+
+- [x] **Download Endpoints**
+  - [x] `GET /api/v1/downloads` — list user's downloads (auth)
+  - [x] `GET /api/v1/downloads/order/:orderId` — order downloads (auth)
+  - [x] `POST /api/v1/downloads/:id/generate` — generate download URL (auth)
+
+- [x] **Digital Delivery Automation**
+  - [x] Auto-creates download records after successful payment
+  - [x] Branded gold HTML delivery email via Resend
+  - [x] Email includes download links, file list, usage limits
+
+- [x] **Admin Digital Asset Endpoints**
+  - [x] `POST /admin/products/:id/digital-assets` — upload digital files
+  - [x] `GET /admin/products/:id/digital-assets` — list digital assets
+  - [x] `POST /admin/digital-assets/attach` — attach temp assets to product
+  - [x] `DELETE /admin/digital-assets/:id` — delete digital asset
 
 ---
 
@@ -602,11 +695,11 @@
 - [ ] `POST /api/admin/orders/:id/refund` - Process refund
 - [ ] `GET /api/admin/orders/stats` - Order statistics
 
-### Phase 12: Payment Integration (Paystack)
+### Phase 12: Payment Integration (Paystack) ✅
 
-- [ ] `POST /api/payments/initialize` - Initialize Paystack payment
-- [ ] `GET /api/payments/verify/:reference` - Verify payment
-- [ ] `POST /api/payments/webhook` - Paystack webhook handler
+- [x] `POST /api/v1/payments/initialize` - Initialize Paystack payment
+- [x] `GET /api/v1/payments/verify/:reference` - Verify payment
+- [x] `POST /api/v1/payments/webhook` - Paystack webhook handler
 - [ ] `GET /api/payments/:id` - Get payment details
 - [ ] Payment retry logic
 - [ ] Failed payment handling
@@ -678,13 +771,14 @@
 - [ ] Search suggestions/autocomplete
 - [ ] Search analytics
 
-### Phase 19: Image Management (Cloudflare)
+### Phase 19: Image Management (Cloudflare) ✅ (Partial)
 
-- [ ] Image upload service (Cloudflare R2 / Cloudflare Images)
+- [x] Image upload service (Cloudflare R2)
 - [ ] Image transformation (resize, crop, optimize)
-- [ ] Image deletion
-- [ ] Multiple image upload
-- [ ] Image CDN delivery
+- [x] Image deletion
+- [x] Multiple image upload
+- [x] R2 signed URL delivery (presigned, auto-expiring)
+- [ ] Image CDN delivery (Cloudflare Images integration)
 
 ### Phase 20: Email Notifications (Partial) ✅
 
@@ -1010,37 +1104,32 @@ The following 16+ models need to be added to `prisma/schema.prisma`:
 
 ## 🎯 Next Steps
 
-### Immediate Priorities (Week 1-2)
+### Immediate Priorities
 
-1. **Products API (Service 3)** - Product schema, CRUD, filtering, pagination, search
-2. **Categories API (Service 4)** - Category schema, hierarchy, product relations
-3. **Cart API (Service 5)** - Guest session + auth cart, merge on login
-4. **Frontend Integration** - Connect client product/category pages to real APIs
+1. **Admin Order Management** — Status updates, order processing workflow
+2. **Admin Inventory Management** — Stock adjustments, low-stock alerts, inventory logs
+3. **Admin Dashboard Enhancement** — Revenue charts, order trends, top products
 
-### Short Term (Week 3-4)
+### Short Term
 
-- Addresses API (Service 6)
-- Orders & Checkout (Service 7)
-- Paystack payment integration (Service 8)
-- Cloudflare image upload service
+- Order tracking and shipping integration
+- Advanced search with MongoDB Atlas Search
+- Profile picture upload (Cloudflare R2)
+- Review moderation (admin)
 
-### Medium Term (Month 2)
+### Medium Term
 
-- Reviews (Service 9)
-- Wishlist (Service 10)
-- Admin Products & Categories (Services 11, 14)
-- Admin Inventory & Orders (Services 12, 13)
-- Admin Dashboard (Service 15)
-
-### Long Term (Month 3+)
-
-- Advanced search with MongoDB Atlas
-- Redis caching layer
-- Email notifications
+- Redis caching layer (product catalog, categories)
+- Discount & coupon system
+- Email notifications (shipping updates, welcome emails)
 - Analytics and reporting
+
+### Long Term
+
 - Multi-vendor support
-- Testing suite
-- Production deployment
+- Testing suite (Jest + integration tests)
+- Production deployment & CI/CD
+- Performance optimization
 
 ---
 
@@ -1121,21 +1210,30 @@ npm run lint              # Run ESLint
 
 ## 📊 Current Status Summary
 
-| Category                | Status         | Progress           |
-| ----------------------- | -------------- | ------------------ |
-| **Infrastructure**      | ✅ Complete    | 100%               |
-| **Database Schema**     | 🔄 In Progress | 15% (2/16+ models) |
-| **Authentication**      | ✅ Complete    | 100%               |
-| **Profile API**         | ✅ Complete    | 100%               |
-| **Product API**         | ⏳ Not Started | 0%                 |
-| **Cart API**            | ⏳ Not Started | 0%                 |
-| **Order API**           | ⏳ Not Started | 0%                 |
-| **Payment Integration** | ⏳ Not Started | 0%                 |
-| **Admin APIs**          | ⏳ Not Started | 0%                 |
-| **Testing**             | ⏳ Not Started | 0%                 |
-| **Deployment**          | ⏳ Not Started | 0%                 |
+| Category                | Status         | Progress              |
+| ----------------------- | -------------- | --------------------- |
+| **Infrastructure**      | ✅ Complete    | 100%                  |
+| **Database Schema**     | ✅ Complete    | 100% (16+ models)     |
+| **Authentication**      | ✅ Complete    | 100%                  |
+| **Profile API**         | ✅ Complete    | 100%                  |
+| **Product API**         | ✅ Complete    | 100%                  |
+| **Categories API**      | ✅ Complete    | 100%                  |
+| **Cart API**            | ✅ Complete    | 100%                  |
+| **Order API**           | ✅ Complete    | 100%                  |
+| **Address API**         | ✅ Complete    | 100%                  |
+| **Payment Integration** | ✅ Complete    | 100% (Paystack)       |
+| **Email (Resend)**      | ✅ Complete    | 100% (receipts + digital delivery) |
+| **Reviews API**         | ✅ Complete    | 100%                  |
+| **Wishlist API**        | ✅ Complete    | 100%                  |
+| **Admin APIs**          | ✅ Complete    | 100% (products, categories, uploads) |
+| **R2 Signed URLs**      | ✅ Complete    | 100%                  |
+| **Digital Products**    | ✅ Complete    | 100% (upload, download, delivery) |
+| **Admin Orders**        | ⏳ Not Started | 0%                    |
+| **Admin Inventory**     | ⏳ Not Started | 0%                    |
+| **Testing**             | ⏳ Not Started | 0%                    |
+| **Deployment**          | 🔄 Partial    | Render.com (staging)  |
 
-**Overall Project Completion:** ~15%
+**Overall Project Completion:** ~75%
 
 ---
 
@@ -1170,7 +1268,7 @@ When adding features:
 
 ---
 
-**Status:** 🟡 Active Development  
+**Status:** � Active Development  
 **Build Status:** ✅ Passing  
 **Database:** 🟢 Connected  
-**Last Updated:** February 8, 2026
+**Last Updated:** February 12, 2026

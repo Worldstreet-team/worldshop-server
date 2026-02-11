@@ -4,6 +4,63 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-02-12
+
+### Added — R2 Signed URLs & Digital Products System
+
+#### R2 Signed URL Infrastructure
+- `src/utils/signUrl.ts` — utility functions for generating presigned R2 URLs (`signR2Key`, `signProductImages`, `signProductListImages`, `signOrderImages`, `signCartImages`, `signWishlistImages`)
+- All image responses now return time-limited signed URLs instead of raw R2 keys
+- Signed URLs have configurable expiry (default 7 days for product images)
+- Applied across all controllers: products, cart, wishlist, orders, admin products
+
+#### Upload Service Update
+- `src/services/upload.service.ts` — `uploadImage` now returns `{ key, signedUrl }` instead of `{ url, key }`
+- All upload consumers updated to use new return shape
+
+#### Zod Validation Fix
+- `src/validators/admin.product.validator.ts` — `updateProductSchema` images array now accepts relative URLs (R2 keys like `/products/...`) in addition to full `https://` URLs
+- Fixed product update failures when images stored as R2 keys
+
+#### Digital Product System — Prisma Models
+- `DigitalAsset` model — `id, productId, fileName, r2Key, mimeType, fileSize, sortOrder, createdAt`
+- `DownloadRecord` model — `id, assetId, orderId, orderItemId, userId, downloadCount, maxDownloads (default 2), expiresAt (7 days), firstDownloadAt, lastDownloadAt, createdAt`
+- Added `type` field to `Product` model (`PHYSICAL` | `DIGITAL`, default `PHYSICAL`)
+- Added `digitalAssets DigitalAsset[]` relation to `Product` model
+- `@@index` on `[productId]` for DigitalAsset, `[userId]`, `[orderId]`, `[assetId]` for DownloadRecord
+
+#### Digital Asset Service
+- `src/services/digitalAsset.service.ts` — `uploadDigitalFiles` (upload to R2 `digital-assets/` prefix), `getProductDigitalAssets`, `attachAssetsToProduct`, `deleteDigitalAsset` (with R2 cleanup)
+
+#### Download Service
+- `src/services/download.service.ts` — `createDownloadRecords` (creates records for all digital assets in an order), `getUserDownloads` (paginated, with signed URLs), `getOrderDownloads`, `generateDownloadUrl` (enforces 2-download limit and 7-day expiry, returns presigned URL)
+
+#### Download Controller & Routes
+- `src/controllers/download.controller.ts` — `getMyDownloads`, `getOrderDownloads`, `generateDownloadUrl`
+- `src/routes/download.routes.ts` — mounted at `/api/v1/downloads` (all routes require auth)
+  - `GET /downloads` — list user's downloads
+  - `GET /downloads/order/:orderId` — downloads for specific order
+  - `POST /downloads/:id/generate` — generate time-limited download URL
+
+#### Digital Delivery on Payment
+- `src/services/payment.service.ts` — after successful payment, automatically creates download records for digital products and sends branded delivery email
+- `src/services/email.service.ts` — added `sendDigitalDeliveryEmail()` with branded gold HTML template, download links, and usage limit notice (2 downloads, 7-day expiry)
+
+### Endpoints Added
+- `GET /api/v1/downloads` — list user's downloads with signed URLs (auth)
+- `GET /api/v1/downloads/order/:orderId` — downloads for specific order (auth)
+- `POST /api/v1/downloads/:id/generate` — generate download URL (auth, enforces limits)
+- `POST /api/v1/admin/products/:id/digital-assets` — upload digital files (admin)
+- `GET /api/v1/admin/products/:id/digital-assets` — list digital assets (admin)
+- `POST /api/v1/admin/digital-assets/attach` — attach temp assets to product (admin)
+- `DELETE /api/v1/admin/digital-assets/:id` — delete digital asset (admin)
+
+### Technical Notes
+- R2 keys stored in DB, signed on response — URLs auto-expire, no stale public URLs
+- Digital delivery is automatic post-payment — no manual admin intervention needed
+- Download limit (2) and expiry (7 days) are configurable per-record
+- `@aws-sdk/s3-request-presigner` used for generating presigned GET URLs
+
 ## [0.8.0] - 2026-02-12
 
 ### Added — Phase 5: Admin Panel Backend
