@@ -9,8 +9,18 @@ const SHIPPING = {
 } as const;
 
 /**
+ * Check if cart contains only digital products (no shipping needed).
+ */
+export function isDigitalOnlyCart(
+  items: Array<{ product: { type?: string } }>
+): boolean {
+  return items.every((item) => item.product.type === 'DIGITAL');
+}
+
+/**
  * Validate cart for checkout.
  * Checks stock availability and calculates final totals.
+ * Skips shipping for digital-only carts.
  */
 export async function validateCart(userId: string): Promise<CheckoutValidationResult> {
   // Get user's cart
@@ -77,7 +87,9 @@ export async function validateCart(userId: string): Promise<CheckoutValidationRe
     subtotal += price * Math.min(item.quantity, availableStock);
   }
 
-  const shipping = subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING.FLAT_RATE;
+  // No shipping for digital-only carts
+  const digitalOnly = isDigitalOnlyCart(cart.items);
+  const shipping = digitalOnly ? 0 : (subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING.FLAT_RATE);
   const total = subtotal + shipping;
 
   return {

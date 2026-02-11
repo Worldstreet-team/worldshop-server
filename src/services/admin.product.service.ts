@@ -60,7 +60,7 @@ export async function adminListProducts(query: AdminProductQueryInput): Promise<
   const [products, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      include: { category: true, variants: true },
+      include: { category: true, variants: true, digitalAssets: true },
       orderBy,
       skip,
       take: limit,
@@ -89,11 +89,13 @@ export async function createProduct(input: CreateProductInput) {
       ...productData,
       slug,
       images: JSON.parse(JSON.stringify(productData.images)),
+      // Digital products have unlimited stock
+      stock: productData.type === 'DIGITAL' ? 999999 : productData.stock,
       variants: variants && variants.length > 0
         ? { create: variants.map((v) => ({ ...v, attributes: JSON.parse(JSON.stringify(v.attributes)) })) }
         : undefined,
     },
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: true },
   });
 
   return product;
@@ -126,7 +128,7 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
   const product = await prisma.product.update({
     where: { id },
     data,
-    include: { category: true, variants: true },
+    include: { category: true, variants: true, digitalAssets: true },
   });
 
   // Update variants if provided
@@ -147,7 +149,7 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
     // Re-fetch with updated variants
     return prisma.product.findUnique({
       where: { id },
-      include: { category: true, variants: true },
+      include: { category: true, variants: true, digitalAssets: true },
     });
   }
 
