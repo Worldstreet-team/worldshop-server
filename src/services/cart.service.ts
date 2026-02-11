@@ -2,6 +2,7 @@ import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
 import type { CartWithTotals, CartItemWithProduct, SHIPPING_CONFIG } from '../types/cart.types';
 import type { AddToCartInput, UpdateCartItemInput } from '../validators/cart.validator';
+import { signProductImages, signR2Key } from '../utils/signUrl';
 
 // Shipping configuration (hardcoded)
 const SHIPPING = {
@@ -410,7 +411,7 @@ export async function mergeCart(
 /**
  * Format cart with computed totals for API response.
  */
-function formatCartResponse(cart: {
+async function formatCartResponse(cart: {
   id: string;
   userId: string | null;
   sessionId: string | null;
@@ -440,8 +441,8 @@ function formatCartResponse(cart: {
       stock: number;
     } | null;
   }>;
-}): CartWithTotals {
-  const items: CartItemWithProduct[] = cart.items.map((item) => {
+}): Promise<CartWithTotals> {
+  const items: CartItemWithProduct[] = await Promise.all(cart.items.map(async (item) => {
     // Determine the price (variant price > sale price > base price)
     const price =
       item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
@@ -455,6 +456,9 @@ function formatCartResponse(cart: {
     } catch {
       images = [];
     }
+
+    // Sign image URLs
+    const signedImages = await signProductImages(images);
 
     return {
       id: item.id,
@@ -471,7 +475,7 @@ function formatCartResponse(cart: {
         basePrice: item.product.basePrice,
         salePrice: item.product.salePrice,
         stock: item.product.stock,
-        images,
+        images: signedImages as Array<{ url: string; alt?: string; isPrimary?: boolean }>,
       },
       variant: item.variant
         ? {
@@ -484,7 +488,7 @@ function formatCartResponse(cart: {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     };
-  });
+  }));
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);

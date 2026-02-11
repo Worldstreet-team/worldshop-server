@@ -6,8 +6,9 @@ import type {
   ShippingAddress,
 } from '../types/order.types';
 import type { CreateOrderInput, OrdersQueryInput, CancelOrderInput } from '../validators/order.validator';
-import { calculateShipping } from './checkout.service';
+import { calculateShipping, isDigitalOnlyCart } from './checkout.service';
 import { OrderStatus } from '../../generated/prisma';
+import { signR2Key } from '../utils/signUrl';
 
 /**
  * Generate a unique order number.
@@ -45,6 +46,9 @@ export async function createOrder(
     throw createError(400, 'Your cart is empty');
   }
 
+  // Check if this is a digital-only order
+  const digitalOnly = isDigitalOnlyCart(cart.items);
+
   // Validate stock and calculate totals
   let subtotal = 0;
   const orderItems: Array<{
@@ -60,6 +64,7 @@ export async function createOrder(
   }> = [];
 
   for (const item of cart.items) {
+    const isDigital = item.product.type === 'DIGITAL';
     const availableStock = item.variant?.stock ?? item.product.stock;
     const price = item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
 
@@ -68,8 +73,8 @@ export async function createOrder(
       throw createError(400, `${item.product.name} is no longer available`);
     }
 
-    // Check stock
-    if (availableStock < item.quantity) {
+    // Check stock (skip for digital products — unlimited)
+    if (!isDigital && availableStock < item.quantity) {
       throw createError(
         400,
         `Only ${availableStock} of ${item.product.name} available`
@@ -104,8 +109,13 @@ export async function createOrder(
     });
   }
 
-  const shipping = calculateShipping(subtotal);
+  const shipping = digitalOnly ? 0 : calculateShipping(subtotal);
   const total = subtotal + shipping;
+
+  // For digital-only orders, shipping address can be empty
+  const shippingAddress = digitalOnly
+    ? (input.shippingAddress || {}) as object
+    : input.shippingAddress as object;
 
   // Create order in a transaction
   const order = await prisma.$transaction(async (tx) => {
@@ -115,7 +125,7 @@ export async function createOrder(
         orderNumber: generateOrderNumber(),
         userId,
         status: OrderStatus.CREATED,
-        shippingAddress: input.shippingAddress as object,
+        shippingAddress,
         billingAddress: input.billingAddress as object | undefined,
         notes: input.notes,
         subtotal,
@@ -145,8 +155,10 @@ export async function createOrder(
       },
     });
 
-    // Decrement product stock
+    // Decrement product stock (skip for digital products)
     for (const item of cart.items) {
+      if (item.product.type === 'DIGITAL') continue;
+
       if (item.variantId) {
         await tx.productVariant.update({
           where: { id: item.variantId },
@@ -208,7 +220,7 @@ export async function getOrders(
   ]);
 
   return {
-    data: orders.map(formatOrderResponse),
+    data: await Promise.all(orders.map(formatOrderResponse)),
     pagination: {
       page,
       limit,
@@ -370,8 +382,9 @@ export async function cancelOrder(
 
 /**
  * Format order for API response.
+ * Signs R2 image keys in order items.
  */
-function formatOrderResponse(order: {
+async function formatOrderResponse(order: {
   id: string;
   orderNumber: string;
   userId: string;
@@ -420,7 +433,27 @@ function formatOrderResponse(order: {
     note: string | null;
     createdAt: Date;
   }>;
-}): OrderWithItems {
+}): Promise<OrderWithItems> {
+  // Sign product images in order items
+  const signedItems = await Promise.all(
+    order.items.map(async (item) => ({
+      id: item.id,
+      orderId: item.orderId,
+      productId: item.productId,
+      variantId: item.variantId,
+      productName: item.productName,
+      productImage: item.productImage ? await signR2Key(item.productImage) : null,
+      sku: item.sku,
+      variantName: item.variantName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      createdAt: item.createdAt,
+      product: item.product,
+      variant: item.variant,
+    }))
+  );
+
   return {
     id: order.id,
     orderNumber: order.orderNumber,
@@ -434,22 +467,7 @@ function formatOrderResponse(order: {
     total: order.total,
     couponCode: order.couponCode,
     notes: order.notes,
-    items: order.items.map((item) => ({
-      id: item.id,
-      orderId: item.orderId,
-      productId: item.productId,
-      variantId: item.variantId,
-      productName: item.productName,
-      productImage: item.productImage,
-      sku: item.sku,
-      variantName: item.variantName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      createdAt: item.createdAt,
-      product: item.product,
-      variant: item.variant,
-    })),
+    items: signedItems,
     statusHistory: order.statusHistory.map((h) => ({
       id: h.id,
       orderId: h.orderId,
