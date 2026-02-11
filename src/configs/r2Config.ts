@@ -15,5 +15,5 @@ export const r2Client = new S3Client({
   },
 });
 
-export const R2_BUCKET = R2_BUCKET_NAME || 'worldshop';
+export const R2_BUCKET = R2_BUCKET_NAME || 'goldstreetshop';
 export const R2_PUBLIC_BASE_URL = R2_PUBLIC_URL || `https://pub-${R2_ACCOUNT_ID}.r2.dev`;
