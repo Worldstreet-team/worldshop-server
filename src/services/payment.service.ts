@@ -13,7 +13,8 @@ import type {
   VerifyPaymentResult,
   PaystackWebhookEvent,
 } from '../types/payment.types';
-import { sendOrderReceipt } from './email.service';
+import { sendOrderReceipt, sendDigitalProductDelivery } from './email.service';
+import { createDownloadRecords } from './download.service';
 import { globalLog as logger } from '../configs/loggerConfig';
 
 type ReceiptMetadata = {
@@ -124,6 +125,59 @@ async function sendReceiptIfNeeded(
       });
     });
   });
+
+  // Create download records and send digital delivery email for digital products
+  void handleDigitalDelivery(orderId, order.userId, customerEmail, profile?.firstName || shippingAddr.firstName || 'Customer', order.orderNumber);
+}
+
+/**
+ * Handle digital product delivery after payment.
+ * Creates download records and sends digital delivery email.
+ */
+async function handleDigitalDelivery(
+  orderId: string,
+  userId: string,
+  customerEmail: string,
+  customerName: string,
+  orderNumber: string,
+): Promise<void> {
+  try {
+    // Create download records for any digital products
+    await createDownloadRecords(orderId, userId);
+
+    // Check if there are any digital items in this order
+    const downloads = await prisma.downloadRecord.findMany({
+      where: { userId, orderItemId: { in: (await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })).map(i => i.id) } },
+    });
+
+    if (downloads.length > 0) {
+      // Get asset info for the email
+      const downloadInfo = await Promise.all(
+        downloads.map(async (dl) => {
+          const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+          return {
+            fileName: asset?.fileName || 'Unknown file',
+            fileSize: asset?.fileSize || 0,
+            downloadId: dl.id,
+            maxDownloads: dl.maxDownloads,
+            expiresAt: dl.expiresAt,
+          };
+        })
+      );
+
+      void sendDigitalProductDelivery({
+        customerEmail,
+        customerName,
+        orderNumber,
+        downloads: downloadInfo,
+      });
+    }
+  } catch (err) {
+    logger.error('[DigitalDelivery] Failed to process digital delivery', {
+      orderId,
+      error: (err as Error).message,
+    });
+  }
 }
 
 /**

@@ -143,8 +143,9 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
   <!-- Header -->
   <tr>
-    <td style="background:#2874f0;padding:24px 32px;text-align:center;">
-      <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">WorldStreet Shop</h1>
+    <td style="background:linear-gradient(135deg, #c8a951 0%, #e8d48b 50%, #c8a951 100%);padding:24px 32px;text-align:center;">
+      <div style="margin-bottom:6px;"><span style="font-size:28px;">🏆</span></div>
+      <h1 style="margin:0;color:#1a1a1a;font-size:22px;font-weight:700;letter-spacing:0.5px;">WorldStreet Gold</h1>
     </td>
   </tr>
 
@@ -238,7 +239,7 @@ function buildReceiptHTML(data: OrderReceiptData): string {
   <!-- CTA -->
   <tr>
     <td style="padding:32px;text-align:center;">
-      <a href="${ordersUrl}" style="display:inline-block;background:#2874f0;color:#ffffff;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">
+      <a href="${ordersUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
         View My Orders
       </a>
     </td>
@@ -250,10 +251,207 @@ function buildReceiptHTML(data: OrderReceiptData): string {
       <p style="margin:0;color:#999;font-size:12px;line-height:1.5;">
         This is an automated receipt from WorldStreet Shop.<br/>
         If you have questions about your order, please contact
-        <a href="mailto:support@worldstreetgold.com" style="color:#2874f0;">support@worldstreetgold.com</a>
+        <a href="mailto:support@worldstreetgold.com" style="color:#c8a951;">support@worldstreetgold.com</a>
       </p>
       <p style="margin:8px 0 0;color:#bbb;font-size:11px;">
-        © ${new Date().getFullYear()} WorldStreet Shop. All rights reserved.
+        © ${new Date().getFullYear()} WorldStreet Gold. All rights reserved.
+      </p>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+
+</body>
+</html>`;
+}
+
+// ─── Digital Product Delivery ───────────────────────────────────
+
+interface DigitalDeliveryData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: string;
+  downloads: {
+    fileName: string;
+    fileSize: number;
+    downloadId: string;
+    maxDownloads: number;
+    expiresAt: Date;
+  }[];
+}
+
+/**
+ * Send digital product delivery email with download links.
+ * Returns true if send succeeded, false if it failed.
+ */
+export async function sendDigitalProductDelivery(
+  data: DigitalDeliveryData
+): Promise<boolean> {
+  try {
+    await _sendDigitalDelivery(data);
+    return true;
+  } catch (err) {
+    logger.error('[Email] Failed to send digital delivery email', {
+      orderNumber: data.orderNumber,
+      email: data.customerEmail,
+      error: (err as Error).message,
+    });
+    return false;
+  }
+}
+
+async function _sendDigitalDelivery(data: DigitalDeliveryData): Promise<void> {
+  const fromAddress = RESEND_FROM_EMAIL || 'orders@worldstreetgold.com';
+
+  const { data: resData, error } = await resend.emails.send({
+    from: `WorldStreet Shop <${fromAddress}>`,
+    to: [data.customerEmail],
+    subject: `Your Digital Products — ${data.orderNumber}`,
+    html: buildDigitalDeliveryHTML(data),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  logger.info('[Email] Digital delivery email sent', {
+    orderNumber: data.orderNumber,
+    to: data.customerEmail,
+    emailId: resData?.id,
+    fileCount: data.downloads.length,
+  });
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
+  const shopUrl = CLIENT_URL || 'https://shop.worldstreetgold.com';
+  const downloadsUrl = `${shopUrl}/account/downloads`;
+
+  const fileRows = data.downloads
+    .map(
+      (dl) => {
+        const expiry = new Date(dl.expiresAt).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+
+        return `
+        <tr>
+          <td style="padding:16px;border-bottom:1px solid #eee;">
+            <div style="display:flex;align-items:center;">
+              <div style="background:#fff3e0;border-radius:8px;padding:10px;margin-right:12px;display:inline-block;">
+                <span style="font-size:20px;">📄</span>
+              </div>
+              <div>
+                <strong style="color:#111;font-size:14px;display:block;">${dl.fileName}</strong>
+                <span style="color:#888;font-size:12px;">${formatFileSize(dl.fileSize)}</span>
+              </div>
+            </div>
+          </td>
+          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
+            <span style="color:#666;font-size:12px;">${dl.maxDownloads} downloads</span>
+          </td>
+          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
+            <span style="color:#666;font-size:12px;">Expires: ${expiry}</span>
+          </td>
+        </tr>`;
+      }
+    )
+    .join('');
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+  <!-- Header with brand color and icon -->
+  <tr>
+    <td style="background:linear-gradient(135deg, #c8a951 0%, #e8d48b 50%, #c8a951 100%);padding:28px 32px;text-align:center;">
+      <div style="margin-bottom:8px;">
+        <span style="font-size:32px;">🏆</span>
+      </div>
+      <h1 style="margin:0;color:#1a1a1a;font-size:22px;font-weight:700;letter-spacing:0.5px;">WorldStreet Gold</h1>
+      <p style="margin:4px 0 0;color:#333;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Digital Products</p>
+    </td>
+  </tr>
+
+  <!-- Greeting -->
+  <tr>
+    <td style="padding:32px 32px 16px;">
+      <h2 style="margin:0 0 8px;color:#111;font-size:20px;">Your files are ready, ${data.customerName}! 🎉</h2>
+      <p style="margin:0;color:#555;font-size:14px;line-height:1.6;">
+        Your payment for order <strong>${data.orderNumber}</strong> has been confirmed.
+        Your digital products are ready to download.
+      </p>
+    </td>
+  </tr>
+
+  <!-- Important notice -->
+  <tr>
+    <td style="padding:0 32px 24px;">
+      <div style="background:#fff8e1;border-left:4px solid #c8a951;border-radius:0 6px 6px 0;padding:14px 16px;">
+        <p style="margin:0;color:#666;font-size:13px;line-height:1.5;">
+          <strong style="color:#333;">⚠️ Important:</strong> Each file can be downloaded a maximum of <strong>${data.downloads[0]?.maxDownloads || 2} times</strong>.
+          Download links expire on <strong>${new Date(data.downloads[0]?.expiresAt || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</strong>.
+          Please save your files after downloading.
+        </p>
+      </div>
+    </td>
+  </tr>
+
+  <!-- Files Table -->
+  <tr>
+    <td style="padding:0 32px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <thead>
+          <tr style="background:#f8f9fa;">
+            <th style="padding:12px 16px;text-align:left;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">File</th>
+            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Limit</th>
+            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Expiry</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${fileRows}
+        </tbody>
+      </table>
+    </td>
+  </tr>
+
+  <!-- CTA Button -->
+  <tr>
+    <td style="padding:32px;text-align:center;">
+      <a href="${downloadsUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:14px 36px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
+        Access My Downloads
+      </a>
+      <p style="margin:12px 0 0;color:#999;font-size:12px;">
+        Log in to your account to download your files
+      </p>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="padding:24px 32px;border-top:1px solid #eee;text-align:center;">
+      <p style="margin:0;color:#999;font-size:12px;line-height:1.5;">
+        This is an automated email from WorldStreet Gold.<br/>
+        If you have questions about your purchase, please contact
+        <a href="mailto:support@worldstreetgold.com" style="color:#c8a951;">support@worldstreetgold.com</a>
+      </p>
+      <p style="margin:8px 0 0;color:#bbb;font-size:11px;">
+        © ${new Date().getFullYear()} WorldStreet Gold. All rights reserved.
       </p>
     </td>
   </tr>

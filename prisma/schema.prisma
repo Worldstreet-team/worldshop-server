@@ -119,14 +119,17 @@ model Product {
   stockKeepingUnit String?       @unique
   basePrice     Float            // Price in NGN (₦)
   salePrice     Float?
-  type          String           @default("PHYSICAL")
+  type          String           @default("PHYSICAL") // PHYSICAL or DIGITAL
 
   categoryId    String?          @db.ObjectId
   category      Category?        @relation(fields: [categoryId], references: [id])
 
   brand         String?
   tags          String[]
-  images        Json       @default("[]") // Array of { url, alt, isPrimary, sortOrder, cloudflareId }
+  images        Json       @default("[]") // Array of { key, alt, isPrimary, sortOrder }
+
+  // Digital product assets (only for type=DIGITAL)
+  digitalAssets DigitalAsset[]
 
   variants      ProductVariant[]
   cartItems     CartItem[]
@@ -364,4 +367,51 @@ model WishlistItem {
 
   @@unique([wishlistId, productId])
   @@index([wishlistId])
+}
+
+// ============================================
+// DIGITAL ASSETS
+// Files attached to DIGITAL products (PDFs, docs, etc.).
+// Stored in R2 under "digital-products/" folder.
+// ============================================
+
+model DigitalAsset {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId     String   @db.ObjectId
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  fileName      String            // Original file name shown to users
+  r2Key         String            // R2 object key (e.g. "digital-products/abc123.pdf")
+  mimeType      String            // e.g. "application/pdf"
+  fileSize      Int               // Size in bytes
+  sortOrder     Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([productId])
+}
+
+// ============================================
+// DOWNLOAD RECORDS
+// Tracks download attempts per order item.
+// Max 2 downloads allowed per order item.
+// ============================================
+
+model DownloadRecord {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderItemId   String   @db.ObjectId
+  userId        String   // External auth user id
+  assetId       String   @db.ObjectId
+
+  downloadCount Int      @default(0) // Current download count
+  maxDownloads  Int      @default(2) // Max allowed downloads
+  expiresAt     DateTime            // Signed URL expiry (7 days from purchase)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([orderItemId, assetId])
+  @@index([userId])
+  @@index([orderItemId])
 }
