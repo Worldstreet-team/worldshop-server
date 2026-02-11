@@ -88,12 +88,17 @@ export const attachDigitalAssets = catchAsync(async (req: Request, res: Response
   }
 
   // Normalize field names: accept both `key`/`r2Key` and `size`/`fileSize`
-  const filesArray: digitalAssetService.DigitalUploadResult[] = incoming.map((f: any) => ({
-    key: f.key || f.r2Key,
-    fileName: f.fileName,
-    mimeType: f.mimeType,
-    fileSize: f.fileSize ?? f.size ?? 0,
-  }));
+  // Derive fileName from the R2 key if not provided (e.g. "digital-products/abc123.pdf" → "abc123.pdf")
+  const filesArray: digitalAssetService.DigitalUploadResult[] = incoming.map((f: any) => {
+    const key: string = f.key || f.r2Key || '';
+    const fileName: string = f.fileName || key.split('/').pop() || 'unnamed-file';
+    return {
+      key,
+      fileName,
+      mimeType: f.mimeType || 'application/octet-stream',
+      fileSize: f.fileSize ?? f.size ?? 0,
+    };
+  });
 
   await digitalAssetService.createDigitalAssets(productId, filesArray);
   const assets = await digitalAssetService.getProductDigitalAssets(productId);
