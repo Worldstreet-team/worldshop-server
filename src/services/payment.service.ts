@@ -101,20 +101,33 @@ async function sendReceiptIfNeeded(
   );
 
   if (isDigitalOnly) {
-    // For digital-only orders, skip the general receipt and send digital delivery email directly
-    void handleDigitalDelivery(orderId, order.userId, customerEmail, customerName, order.orderNumber);
+    // For digital-only orders, send only the digital delivery email
+    const deliverySent = await handleDigitalDelivery(
+      orderId,
+      order.userId,
+      customerEmail,
+      customerName,
+      order.orderNumber
+    );
 
-    // Mark receipt as sent to prevent duplicates
-    void prisma.payment.update({
-      where: { id: paymentRecord.id },
-      data: {
-        metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
-      },
-    }).catch(() => {
-      logger.warn('[Email] Failed to persist receiptSentAt metadata', {
-        paymentId: paymentRecord.id,
+    if (deliverySent) {
+      // Mark receipt as sent to prevent duplicates
+      void prisma.payment.update({
+        where: { id: paymentRecord.id },
+        data: {
+          metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
+        },
+      }).catch(() => {
+        logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+          paymentId: paymentRecord.id,
+        });
       });
-    });
+    } else {
+      logger.warn('[DigitalDelivery] Email not sent; receipt not marked', {
+        orderId,
+        orderNumber: order.orderNumber,
+      });
+    }
   } else {
     // For physical/mixed orders, send the general receipt and handle digital delivery if any
     void sendOrderReceipt({
@@ -169,7 +182,7 @@ async function handleDigitalDelivery(
   customerEmail: string,
   customerName: string,
   orderNumber: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     // Create download records for any digital products (ignore duplicates on retry)
     try {
@@ -227,6 +240,8 @@ async function handleDigitalDelivery(
         to: customerEmail,
         fileCount: downloadInfo.length,
       });
+
+      return sent;
     } else {
       logger.warn('[DigitalDelivery] No download records found — email not sent', {
         orderId,
@@ -234,6 +249,8 @@ async function handleDigitalDelivery(
         userId,
         orderItemIds,
       });
+
+      return false;
     }
   } catch (err) {
     logger.error('[DigitalDelivery] Failed to process digital delivery', {
@@ -242,6 +259,8 @@ async function handleDigitalDelivery(
       error: (err as Error).message,
       stack: (err as Error).stack,
     });
+
+    return false;
   }
 }
 

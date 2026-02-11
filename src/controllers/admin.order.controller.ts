@@ -73,3 +73,20 @@ export const updateOrderStatus = catchAsync(
     });
   }
 );
+
+/**
+ * POST /api/v1/admin/orders/:id/resend-digital-delivery
+ * Resend the digital delivery email for a specific order.
+ */
+export const resendDigitalDelivery = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const orderId = req.params.id as string;
+    const result = await adminOrderService.resendDigitalDelivery(orderId);
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Digital delivery email sent',
+    });
+  }
+);

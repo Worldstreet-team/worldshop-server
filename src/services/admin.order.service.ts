@@ -8,6 +8,9 @@ import type {
 } from '../validators/admin.order.validator';
 import type { OrderWithItems, PaginatedOrders } from '../types/order.types';
 import { signR2Key } from '../utils/signUrl';
+import { sendDigitalProductDelivery } from './email.service';
+import { createDownloadRecords } from './download.service';
+import { globalLog as logger } from '../configs/loggerConfig';
 
 // ─── Valid status transitions ───────────────────────────────────
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -131,6 +134,96 @@ export async function adminGetOrder(orderId: string): Promise<OrderWithItems> {
   }
 
   return formatAdminOrderResponse(order);
+}
+
+/**
+ * Resend digital delivery email for a specific order.
+ */
+export async function resendDigitalDelivery(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: {
+        include: {
+          product: {
+            include: {
+              digitalAssets: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw createError(404, 'Order not found');
+  }
+
+  const hasDigitalItems = order.items.some((item) => item.product.type === 'DIGITAL');
+  if (!hasDigitalItems) {
+    throw createError(400, 'Order has no digital products');
+  }
+
+  const profile = await prisma.userProfile.findUnique({
+    where: { userId: order.userId },
+  });
+
+  const customerEmail = profile?.email;
+  if (!customerEmail) {
+    throw createError(400, 'No customer email found for digital delivery');
+  }
+
+  const customerName = profile?.firstName || 'Customer';
+
+  // Create download records (ignore duplicates on retry)
+  try {
+    await createDownloadRecords(orderId, order.userId);
+  } catch (err) {
+    logger.warn('[Admin] createDownloadRecords error (may be duplicate)', {
+      orderId,
+      error: (err as Error).message,
+    });
+  }
+
+  const orderItemIds = order.items.map((item) => item.id);
+  const downloads = await prisma.downloadRecord.findMany({
+    where: { userId: order.userId, orderItemId: { in: orderItemIds } },
+  });
+
+  if (downloads.length === 0) {
+    throw createError(400, 'No download records found for this order');
+  }
+
+  const downloadInfo = await Promise.all(
+    downloads.map(async (dl) => {
+      const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+      return {
+        fileName: asset?.fileName || 'Unknown file',
+        fileSize: asset?.fileSize || 0,
+        downloadId: dl.id,
+        maxDownloads: dl.maxDownloads,
+        expiresAt: dl.expiresAt,
+      };
+    })
+  );
+
+  const sent = await sendDigitalProductDelivery({
+    customerEmail,
+    customerName,
+    orderNumber: order.orderNumber,
+    downloads: downloadInfo,
+  });
+
+  if (!sent) {
+    throw createError(502, 'Failed to send digital delivery email');
+  }
+
+  return {
+    sent,
+    email: customerEmail,
+    downloadCount: downloadInfo.length,
+    orderNumber: order.orderNumber,
+  };
 }
 
 /**

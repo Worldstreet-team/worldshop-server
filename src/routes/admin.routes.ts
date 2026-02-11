@@ -21,6 +21,7 @@ router.get('/orders', adminOrderController.getOrders);
 router.get('/orders/stats', adminOrderController.getOrderStats);
 router.get('/orders/:id', adminOrderController.getOrder);
 router.patch('/orders/:id/status', adminOrderController.updateOrderStatus);
+router.post('/orders/:id/resend-digital-delivery', adminOrderController.resendDigitalDelivery);
 
 // ─── Inventory Management ───────────────────────────────────────
 router.get('/inventory', adminInventoryController.getInventory);
