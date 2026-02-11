@@ -15,6 +15,7 @@ import type {
 } from '../types/payment.types';
 import { sendOrderReceipt, sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
+import { signR2Key } from '../utils/signUrl';
 import { globalLog as logger } from '../configs/loggerConfig';
 
 type ReceiptMetadata = {
@@ -212,14 +213,16 @@ async function handleDigitalDelivery(
     });
 
     if (downloads.length > 0) {
-      // Get asset info for the email
+      // Get asset info and generate presigned download URLs for the email
       const downloadInfo = await Promise.all(
         downloads.map(async (dl) => {
           const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+          const downloadUrl = asset?.r2Key ? await signR2Key(asset.r2Key) : '';
           return {
             fileName: asset?.fileName || 'Unknown file',
             fileSize: asset?.fileSize || 0,
             downloadId: dl.id,
+            downloadUrl,
             maxDownloads: dl.maxDownloads,
             expiresAt: dl.expiresAt,
           };
