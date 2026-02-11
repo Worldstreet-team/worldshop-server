@@ -509,18 +509,6 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
     </td>
   </tr>
 
-  <!-- CTA Button -->
-  <tr>
-    <td style="padding:32px;text-align:center;">
-      <a href="${downloadsUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:14px 36px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
-        Access My Downloads
-      </a>
-      <p style="margin:12px 0 0;color:#999;font-size:12px;">
-        Log in to your account to download your files
-      </p>
-    </td>
-  </tr>
-
   <!-- Footer -->
   <tr>
     <td style="padding:24px 32px;border-top:1px solid #eee;text-align:center;">
