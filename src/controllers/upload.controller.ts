@@ -72,18 +72,28 @@ export const uploadDigitalFiles = catchAsync(async (req: Request, res: Response,
  * POST /api/v1/admin/products/:id/digital-assets
  * Attach uploaded digital files to a product.
  * Body: { files: [{ key, fileName, mimeType, fileSize }] }
+ *    or  { assets: [{ r2Key, fileName, mimeType, fileSize }] }
+ *    or a single object instead of an array.
  */
 export const attachDigitalAssets = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const productId = req.params.id as string;
-  const { files } = req.body as { files: digitalAssetService.DigitalUploadResult | digitalAssetService.DigitalUploadResult[] };
+  const raw = req.body.files ?? req.body.assets ?? req.body;
 
   // Normalize: accept a single file object or an array of files
-  const filesArray = Array.isArray(files) ? files : files ? [files] : [];
+  const incoming = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && (raw.key || raw.r2Key || raw.fileName) ? [raw] : [];
 
-  if (filesArray.length === 0) {
+  if (incoming.length === 0) {
     res.status(400).json({ success: false, message: 'Provide at least one file to attach.' });
     return;
   }
+
+  // Normalize field names: accept both `key`/`r2Key` and `size`/`fileSize`
+  const filesArray: digitalAssetService.DigitalUploadResult[] = incoming.map((f: any) => ({
+    key: f.key || f.r2Key,
+    fileName: f.fileName,
+    mimeType: f.mimeType,
+    fileSize: f.fileSize ?? f.size ?? 0,
+  }));
 
   await digitalAssetService.createDigitalAssets(productId, filesArray);
   const assets = await digitalAssetService.getProductDigitalAssets(productId);
