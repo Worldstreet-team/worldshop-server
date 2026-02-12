@@ -164,11 +164,10 @@ async function sendReceiptIfNeeded(
           digitalDownloads = await Promise.all(
             downloads.map(async (dl) => {
               const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
-              const downloadUrl = asset?.r2Key ? await signR2Key(asset.r2Key) : '';
               return {
                 fileName: asset?.fileName || 'Unknown file',
                 fileSize: asset?.fileSize || 0,
-                downloadUrl,
+                downloadUrl: '', // Do NOT include direct signed URLs in email - users must download from dashboard
                 maxDownloads: dl.maxDownloads,
                 expiresAt: dl.expiresAt,
               };
@@ -264,16 +263,16 @@ async function handleDigitalDelivery(
     });
 
     if (downloads.length > 0) {
-      // Get asset info and generate presigned download URLs for the email
+      // Get asset info - do NOT generate presigned download URLs for email
+      // Users must access downloads through their dashboard for tracking
       const downloadInfo = await Promise.all(
         downloads.map(async (dl) => {
           const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
-          const downloadUrl = asset?.r2Key ? await signR2Key(asset.r2Key) : '';
           return {
             fileName: asset?.fileName || 'Unknown file',
             fileSize: asset?.fileSize || 0,
             downloadId: dl.id,
-            downloadUrl,
+            downloadUrl: '', // Empty - users download from dashboard
             maxDownloads: dl.maxDownloads,
             expiresAt: dl.expiresAt,
           };

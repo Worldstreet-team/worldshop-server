@@ -309,7 +309,7 @@ function buildDigitalDownloadsSection(
           <span style="color:#666;font-size:11px;">${dl.maxDownloads} downloads<br/>Exp: ${expiry}</span>
         </td>
         <td style="padding:12px 16px;border-bottom:1px solid #eee;text-align:center;">
-          <a href="${dl.downloadUrl}" style="display:inline-block;background:linear-gradient(135deg,#c8a951,#e8d48b);color:#1a1a1a;padding:6px 14px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Download</a>
+          <span style="color:#999;font-size:11px;">Download from your account</span>
         </td>
       </tr>`;
     })
@@ -438,7 +438,7 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
             <span style="color:#666;font-size:12px;">Expires: ${expiry}</span>
           </td>
           <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
-            <a href="${dl.downloadUrl}" style="display:inline-block;background:linear-gradient(135deg,#c8a951,#e8d48b);color:#1a1a1a;padding:8px 16px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Download</a>
+            <span style="color:#999;font-size:11px;">Download from your account</span>
           </td>
         </tr>`;
       }
@@ -506,6 +506,18 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
           ${fileRows}
         </tbody>
       </table>
+    </td>
+  </tr>
+
+  <!-- CTA Button -->
+  <tr>
+    <td style="padding:32px;text-align:center;">
+      <a href="${downloadsUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:14px 36px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
+        Go to My Downloads
+      </a>
+      <p style="margin:12px 0 0;color:#666;font-size:12px;line-height:1.5;">
+        Click the button above to download your files from your account dashboard.
+      </p>
     </td>
   </tr>
 

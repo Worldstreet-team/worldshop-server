@@ -395,7 +395,7 @@ model DigitalAsset {
 // ============================================
 // DOWNLOAD RECORDS
 // Tracks download attempts per order item.
-// Max 2 downloads allowed per order item.
+// Max 5 downloads allowed per order item.
 // ============================================
 
 model DownloadRecord {
@@ -405,7 +405,7 @@ model DownloadRecord {
   assetId       String   @db.ObjectId
 
   downloadCount Int      @default(0) // Current download count
-  maxDownloads  Int      @default(2) // Max allowed downloads
+  maxDownloads  Int      @default(5) // Max allowed downloads
   expiresAt     DateTime            // Signed URL expiry (7 days from purchase)
 
   createdAt     DateTime @default(now())

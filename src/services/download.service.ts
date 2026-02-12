@@ -9,7 +9,7 @@ import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
 import { signR2Key } from '../utils/signUrl';
 
-const MAX_DOWNLOADS = 2;
+const MAX_DOWNLOADS = 5;
 const DOWNLOAD_EXPIRY_DAYS = 7;
 
 /**
@@ -172,7 +172,7 @@ export async function getOrderDownloads(orderId: string, userId: string) {
 export async function generateDownloadUrl(
   downloadRecordId: string,
   userId: string
-): Promise<{ url: string; fileName: string; remainingDownloads: number }> {
+): Promise<{ downloadUrl: string; fileName: string; downloadsRemaining: number; expiresAt: Date }> {
   const record = await prisma.downloadRecord.findUnique({
     where: { id: downloadRecordId },
   });
@@ -210,8 +210,9 @@ export async function generateDownloadUrl(
   });
 
   return {
-    url: signedUrl,
+    downloadUrl: signedUrl,
     fileName: asset.fileName,
-    remainingDownloads: record.maxDownloads - record.downloadCount - 1,
+    downloadsRemaining: record.maxDownloads - record.downloadCount - 1,
+    expiresAt: record.expiresAt,
   };
 }
