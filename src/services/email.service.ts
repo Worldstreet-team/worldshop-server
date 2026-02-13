@@ -95,6 +95,25 @@ async function _sendReceipt(data: OrderReceiptData): Promise<void> {
 
 // ─── HTML Template ──────────────────────────────────────────────
 
+// Brand Colors (from client SCSS)
+const COLORS = {
+  primary: '#fed700',      // Yellow
+  primaryDark: '#e6c200',
+  secondary: '#333e48',    // Dark slate
+  secondaryDark: '#232a30',
+  success: '#28a745',
+  warning: '#ffc107',
+  danger: '#dc3545',
+  info: '#17a2b8',
+  white: '#ffffff',
+  gray50: '#fafafa',
+  gray100: '#f8f9fa',
+  gray200: '#e9ecef',
+  gray300: '#dee2e6',
+  gray600: '#6c757d',
+  gray900: '#212529',
+};
+
 function formatNGN(amount: number): string {
   return `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -107,18 +126,25 @@ function buildReceiptHTML(data: OrderReceiptData): string {
     .map(
       (item) => `
       <tr>
-        <td style="padding:12px 8px;border-bottom:1px solid #eee;">
-          ${item.productImage
-          ? `<img src="${item.productImage}" alt="${item.productName}" width="50" height="50" style="border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px;" />`
+        <td style="padding:14px 12px;border-bottom:1px solid ${COLORS.gray200};">
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              ${item.productImage
+          ? `<td style="vertical-align:middle;padding-right:12px;">
+                    <img src="${item.productImage}" alt="${item.productName}" width="56" height="56" style="border-radius:8px;object-fit:cover;border:1px solid ${COLORS.gray200};" />
+                  </td>`
           : ''
         }
-          <span style="vertical-align:middle;">
-            ${item.productName}${item.variantName ? ` <span style="color:#666;font-size:12px;">(${item.variantName})</span>` : ''}
-          </span>
+              <td style="vertical-align:middle;">
+                <span style="color:${COLORS.gray900};font-size:14px;font-weight:600;">${item.productName}</span>
+                ${item.variantName ? `<br/><span style="color:${COLORS.gray600};font-size:12px;">${item.variantName}</span>` : ''}
+              </td>
+            </tr>
+          </table>
         </td>
-        <td style="padding:12px 8px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
-        <td style="padding:12px 8px;border-bottom:1px solid #eee;text-align:right;">${formatNGN(item.unitPrice)}</td>
-        <td style="padding:12px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">${formatNGN(item.totalPrice)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid ${COLORS.gray200};text-align:center;color:${COLORS.gray600};font-size:14px;">${item.quantity}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid ${COLORS.gray200};text-align:right;color:${COLORS.gray600};font-size:14px;">${formatNGN(item.unitPrice)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid ${COLORS.gray200};text-align:right;font-weight:600;color:${COLORS.gray900};font-size:14px;">${formatNGN(item.totalPrice)}</td>
       </tr>`
     )
     .join('');
@@ -142,46 +168,72 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<body style="margin:0;padding:0;background:${COLORS.gray100};font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.gray100};padding:40px 16px;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+<table width="600" cellpadding="0" cellspacing="0" style="background:${COLORS.white};border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
   <!-- Header -->
   <tr>
-    <td style="background:linear-gradient(135deg, #c8a951 0%, #e8d48b 50%, #c8a951 100%);padding:24px 32px;text-align:center;">
-      <div style="margin-bottom:6px;"><span style="font-size:28px;">🏆</span></div>
-      <h1 style="margin:0;color:#1a1a1a;font-size:22px;font-weight:700;letter-spacing:0.5px;">WorldStreet Gold</h1>
+    <td style="background:${COLORS.secondary};padding:32px 40px;text-align:center;">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td style="background:${COLORS.primary};width:48px;height:48px;border-radius:10px;text-align:center;vertical-align:middle;">
+            <span style="font-size:24px;line-height:48px;">✦</span>
+          </td>
+          <td style="padding-left:14px;">
+            <h1 style="margin:0;color:${COLORS.white};font-size:24px;font-weight:700;letter-spacing:0.5px;">WorldStreet</h1>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 
-  <!-- Thank You -->
+  <!-- Success Banner -->
   <tr>
-    <td style="padding:32px 32px 16px;">
-      <h2 style="margin:0 0 8px;color:#111;font-size:20px;">Thank you for your order, ${data.customerName}!</h2>
-      <p style="margin:0;color:#555;font-size:14px;line-height:1.5;">
-        Your payment has been confirmed and your order is now being processed.
+    <td style="background:${COLORS.primary};padding:20px 40px;text-align:center;">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td style="padding-right:10px;vertical-align:middle;">
+            <div style="background:${COLORS.secondary};width:32px;height:32px;border-radius:50%;text-align:center;line-height:32px;">
+              <span style="color:${COLORS.primary};font-size:18px;">✓</span>
+            </div>
+          </td>
+          <td style="vertical-align:middle;">
+            <span style="color:${COLORS.secondary};font-size:16px;font-weight:700;">Order Confirmed</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Thank You Message -->
+  <tr>
+    <td style="padding:40px 40px 24px;">
+      <h2 style="margin:0 0 12px;color:${COLORS.gray900};font-size:22px;font-weight:700;">Thank you, ${data.customerName}!</h2>
+      <p style="margin:0;color:${COLORS.gray600};font-size:15px;line-height:1.6;">
+        Your payment has been confirmed and your order is now being processed. We'll notify you when it ships.
       </p>
     </td>
   </tr>
 
-  <!-- Order Meta -->
+  <!-- Order Info Cards -->
   <tr>
-    <td style="padding:0 32px 24px;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f9fa;border-radius:6px;padding:16px;">
+    <td style="padding:0 40px 32px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.gray50};border-radius:10px;border:1px solid ${COLORS.gray200};">
         <tr>
-          <td style="padding:8px 12px;">
-            <span style="color:#666;font-size:12px;text-transform:uppercase;">Order Number</span><br/>
-            <strong style="color:#111;font-size:15px;">${data.orderNumber}</strong>
+          <td style="padding:18px 20px;border-right:1px solid ${COLORS.gray200};">
+            <span style="color:${COLORS.gray600};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Order Number</span>
+            <strong style="color:${COLORS.gray900};font-size:15px;">${data.orderNumber}</strong>
           </td>
-          <td style="padding:8px 12px;">
-            <span style="color:#666;font-size:12px;text-transform:uppercase;">Date</span><br/>
-            <strong style="color:#111;font-size:15px;">${paidDate}</strong>
+          <td style="padding:18px 20px;border-right:1px solid ${COLORS.gray200};">
+            <span style="color:${COLORS.gray600};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Date</span>
+            <strong style="color:${COLORS.gray900};font-size:15px;">${paidDate}</strong>
           </td>
-          <td style="padding:8px 12px;">
-            <span style="color:#666;font-size:12px;text-transform:uppercase;">Payment</span><br/>
-            <strong style="color:#111;font-size:15px;text-transform:capitalize;">${data.paymentChannel}</strong>
+          <td style="padding:18px 20px;">
+            <span style="color:${COLORS.gray600};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Payment</span>
+            <strong style="color:${COLORS.gray900};font-size:15px;text-transform:capitalize;">${data.paymentChannel}</strong>
           </td>
         </tr>
       </table>
@@ -190,14 +242,15 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
   <!-- Items Table -->
   <tr>
-    <td style="padding:0 32px;">
+    <td style="padding:0 40px;">
+      <h3 style="margin:0 0 16px;color:${COLORS.gray900};font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Order Items</h3>
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
         <thead>
-          <tr style="background:#f8f9fa;">
-            <th style="padding:10px 8px;text-align:left;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Item</th>
-            <th style="padding:10px 8px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Qty</th>
-            <th style="padding:10px 8px;text-align:right;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Price</th>
-            <th style="padding:10px 8px;text-align:right;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Total</th>
+          <tr style="background:${COLORS.secondary};">
+            <th style="padding:12px;text-align:left;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;border-radius:8px 0 0 0;">Item</th>
+            <th style="padding:12px;text-align:center;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Qty</th>
+            <th style="padding:12px;text-align:right;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Price</th>
+            <th style="padding:12px;text-align:right;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;border-radius:0 8px 0 0;">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -209,27 +262,27 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
   <!-- Totals -->
   <tr>
-    <td style="padding:16px 32px 0;">
+    <td style="padding:24px 40px 0;">
       <table width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td style="padding:6px 0;color:#555;font-size:14px;">Subtotal</td>
-          <td style="padding:6px 0;text-align:right;color:#555;font-size:14px;">${formatNGN(data.subtotal)}</td>
+          <td style="padding:8px 0;color:${COLORS.gray600};font-size:14px;">Subtotal</td>
+          <td style="padding:8px 0;text-align:right;color:${COLORS.gray600};font-size:14px;">${formatNGN(data.subtotal)}</td>
         </tr>
         <tr>
-          <td style="padding:6px 0;color:#555;font-size:14px;">Shipping</td>
-          <td style="padding:6px 0;text-align:right;color:#555;font-size:14px;">${data.shipping === 0 ? '<span style="color:#16a34a;">Free</span>' : formatNGN(data.shipping)}</td>
+          <td style="padding:8px 0;color:${COLORS.gray600};font-size:14px;">Shipping</td>
+          <td style="padding:8px 0;text-align:right;color:${COLORS.gray600};font-size:14px;">${data.shipping === 0 ? `<span style="color:${COLORS.success};font-weight:600;">Free</span>` : formatNGN(data.shipping)}</td>
         </tr>
         ${data.discount > 0 ? `
         <tr>
-          <td style="padding:6px 0;color:#16a34a;font-size:14px;">Discount</td>
-          <td style="padding:6px 0;text-align:right;color:#16a34a;font-size:14px;">-${formatNGN(data.discount)}</td>
+          <td style="padding:8px 0;color:${COLORS.success};font-size:14px;">Discount</td>
+          <td style="padding:8px 0;text-align:right;color:${COLORS.success};font-size:14px;">-${formatNGN(data.discount)}</td>
         </tr>` : ''}
         <tr>
-          <td colspan="2" style="border-top:2px solid #111;padding-top:12px;"></td>
+          <td colspan="2" style="padding-top:12px;"><div style="height:2px;background:${COLORS.gray200};"></div></td>
         </tr>
         <tr>
-          <td style="padding:4px 0;font-size:18px;font-weight:700;color:#111;">Total Paid</td>
-          <td style="padding:4px 0;text-align:right;font-size:18px;font-weight:700;color:#111;">${formatNGN(data.total)}</td>
+          <td style="padding:16px 0 8px;font-size:18px;font-weight:700;color:${COLORS.gray900};">Total Paid</td>
+          <td style="padding:16px 0 8px;text-align:right;font-size:20px;font-weight:700;color:${COLORS.secondary};">${formatNGN(data.total)}</td>
         </tr>
       </table>
     </td>
@@ -237,18 +290,24 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
   <!-- Shipping Address -->
   <tr>
-    <td style="padding:24px 32px 0;">
-      <h3 style="margin:0 0 8px;font-size:14px;color:#666;text-transform:uppercase;">Shipping Address</h3>
-      <p style="margin:0;color:#333;font-size:14px;line-height:1.6;">${addressBlock}</p>
+    <td style="padding:32px 40px 0;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.gray50};border-radius:10px;border:1px solid ${COLORS.gray200};padding:20px;">
+        <tr>
+          <td>
+            <h3 style="margin:0 0 12px;font-size:12px;color:${COLORS.gray600};text-transform:uppercase;letter-spacing:0.5px;">📍 Shipping Address</h3>
+            <p style="margin:0;color:${COLORS.gray900};font-size:14px;line-height:1.7;">${addressBlock}</p>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 
   ${buildDigitalDownloadsSection(data.digitalDownloads)}
 
-  <!-- CTA -->
+  <!-- CTA Button -->
   <tr>
-    <td style="padding:32px;text-align:center;">
-      <a href="${ordersUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
+    <td style="padding:40px;text-align:center;">
+      <a href="${ordersUrl}" style="display:inline-block;background:${COLORS.primary};color:${COLORS.secondary};padding:16px 40px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;box-shadow:0 4px 12px rgba(254,215,0,0.35);">
         View My Orders
       </a>
     </td>
@@ -256,13 +315,12 @@ function buildReceiptHTML(data: OrderReceiptData): string {
 
   <!-- Footer -->
   <tr>
-    <td style="padding:24px 32px;border-top:1px solid #eee;text-align:center;">
-      <p style="margin:0;color:#999;font-size:12px;line-height:1.5;">
-        This is an automated receipt from WorldStreet Shop.<br/>
-        If you have questions about your order, please contact
-        <a href="mailto:support@worldstreetgold.com" style="color:#c8a951;">support@worldstreetgold.com</a>
+    <td style="padding:32px 40px;background:${COLORS.gray50};border-top:1px solid ${COLORS.gray200};text-align:center;">
+      <p style="margin:0 0 8px;color:${COLORS.gray600};font-size:13px;">
+        Questions about your order? Contact us at
+        <a href="mailto:support@worldstreetgold.com" style="color:${COLORS.secondary};font-weight:600;">support@worldstreetgold.com</a>
       </p>
-      <p style="margin:8px 0 0;color:#bbb;font-size:11px;">
+      <p style="margin:0;color:${COLORS.gray600};font-size:12px;">
         © ${new Date().getFullYear()} WorldStreet Gold. All rights reserved.
       </p>
     </td>
@@ -298,18 +356,25 @@ function buildDigitalDownloadsSection(
       });
       return `
       <tr>
-        <td style="padding:12px 16px;border-bottom:1px solid #eee;">
-          <div>
-            <span style="font-size:16px;margin-right:6px;">📄</span>
-            <strong style="color:#111;font-size:13px;">${dl.fileName}</strong>
-            <span style="color:#888;font-size:11px;margin-left:4px;">(${formatFileSize(dl.fileSize)})</span>
-          </div>
+        <td style="padding:14px 16px;border-bottom:1px solid ${COLORS.gray200};">
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="background:${COLORS.primary};width:40px;height:40px;border-radius:8px;text-align:center;vertical-align:middle;">
+                <span style="font-size:18px;line-height:40px;">📄</span>
+              </td>
+              <td style="padding-left:12px;vertical-align:middle;">
+                <strong style="color:${COLORS.gray900};font-size:14px;">${dl.fileName}</strong><br/>
+                <span style="color:${COLORS.gray600};font-size:12px;">${formatFileSize(dl.fileSize)}</span>
+              </td>
+            </tr>
+          </table>
         </td>
-        <td style="padding:12px 8px;border-bottom:1px solid #eee;text-align:center;">
-          <span style="color:#666;font-size:11px;">${dl.maxDownloads} downloads<br/>Exp: ${expiry}</span>
+        <td style="padding:14px 12px;border-bottom:1px solid ${COLORS.gray200};text-align:center;">
+          <span style="color:${COLORS.gray600};font-size:12px;">${dl.maxDownloads} downloads</span><br/>
+          <span style="color:${COLORS.gray600};font-size:11px;">Exp: ${expiry}</span>
         </td>
-        <td style="padding:12px 16px;border-bottom:1px solid #eee;text-align:center;">
-          <span style="color:#999;font-size:11px;">Download from your account</span>
+        <td style="padding:14px 16px;border-bottom:1px solid ${COLORS.gray200};text-align:center;">
+          <span style="background:${COLORS.gray100};color:${COLORS.gray600};padding:6px 12px;border-radius:6px;font-size:11px;">Download from account</span>
         </td>
       </tr>`;
     })
@@ -318,26 +383,39 @@ function buildDigitalDownloadsSection(
   return `
   <!-- Digital Downloads -->
   <tr>
-    <td style="padding:24px 32px 0;">
-      <h3 style="margin:0 0 8px;font-size:14px;color:#666;text-transform:uppercase;">🎁 Your Digital Products</h3>
-      <div style="background:#fff8e1;border-left:4px solid #c8a951;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:16px;">
-        <p style="margin:0;color:#666;font-size:12px;line-height:1.4;">
-          <strong style="color:#333;">⚠️ Important:</strong> Each file can be downloaded up to <strong>${downloads[0]?.maxDownloads || 2} times</strong>.
-          Links expire on <strong>${firstExpiry}</strong>. Please save your files after downloading.
-        </p>
-      </div>
-      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
-        <thead>
-          <tr style="background:#f8f9fa;">
-            <th style="padding:10px 16px;text-align:left;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">File</th>
-            <th style="padding:10px 8px;text-align:center;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Limit</th>
-            <th style="padding:10px 16px;text-align:center;font-size:11px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Action</th>
+    <td style="padding:32px 40px 0;">
+      <div style="background:linear-gradient(135deg,${COLORS.primary}15,${COLORS.primary}08);border-radius:12px;padding:24px;border:1px solid ${COLORS.primary}40;">
+        <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px;">
+          <tr>
+            <td style="background:${COLORS.primary};width:36px;height:36px;border-radius:8px;text-align:center;vertical-align:middle;">
+              <span style="font-size:18px;line-height:36px;">🎁</span>
+            </td>
+            <td style="padding-left:12px;vertical-align:middle;">
+              <h3 style="margin:0;font-size:16px;color:${COLORS.gray900};font-weight:700;">Your Digital Products</h3>
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          ${fileRows}
-        </tbody>
-      </table>
+        </table>
+        
+        <div style="background:${COLORS.white};border-radius:8px;padding:14px 16px;margin-bottom:20px;border-left:4px solid ${COLORS.warning};">
+          <p style="margin:0;color:${COLORS.gray600};font-size:13px;line-height:1.5;">
+            <strong style="color:${COLORS.gray900};">⚠️ Important:</strong> Each file can be downloaded up to <strong>${downloads[0]?.maxDownloads || 2} times</strong>.
+            Links expire on <strong>${firstExpiry}</strong>. Please save your files after downloading.
+          </p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:${COLORS.white};border-radius:8px;overflow:hidden;border:1px solid ${COLORS.gray200};">
+          <thead>
+            <tr style="background:${COLORS.secondary};">
+              <th style="padding:12px 16px;text-align:left;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">File</th>
+              <th style="padding:12px 12px;text-align:center;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Limit</th>
+              <th style="padding:12px 16px;text-align:center;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${fileRows}
+          </tbody>
+        </table>
+      </div>
     </td>
   </tr>`;
 }
@@ -420,25 +498,28 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
         });
         return `
         <tr>
-          <td style="padding:16px;border-bottom:1px solid #eee;">
-            <div style="display:flex;align-items:center;">
-              <div style="background:#fff3e0;border-radius:8px;padding:10px;margin-right:12px;display:inline-block;">
-                <span style="font-size:20px;">📄</span>
-              </div>
-              <div>
-                <strong style="color:#111;font-size:14px;display:block;">${dl.fileName}</strong>
-                <span style="color:#888;font-size:12px;">${formatFileSize(dl.fileSize)}</span>
-              </div>
+          <td style="padding:16px;border-bottom:1px solid ${COLORS.gray200};">
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background:${COLORS.primary};width:44px;height:44px;border-radius:10px;text-align:center;vertical-align:middle;">
+                  <span style="font-size:20px;line-height:44px;">📄</span>
+                </td>
+                <td style="padding-left:14px;vertical-align:middle;">
+                  <strong style="color:${COLORS.gray900};font-size:15px;display:block;margin-bottom:4px;">${dl.fileName}</strong>
+                  <span style="color:${COLORS.gray600};font-size:13px;">${formatFileSize(dl.fileSize)}</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+          <td style="padding:16px;border-bottom:1px solid ${COLORS.gray200};text-align:center;">
+            <div style="background:${COLORS.gray100};padding:8px 12px;border-radius:6px;display:inline-block;">
+              <span style="color:${COLORS.gray900};font-size:14px;font-weight:600;">${dl.maxDownloads}</span>
+              <span style="color:${COLORS.gray600};font-size:11px;display:block;">downloads</span>
             </div>
           </td>
-          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
-            <span style="color:#666;font-size:12px;">${dl.maxDownloads} downloads</span>
-          </td>
-          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
-            <span style="color:#666;font-size:12px;">Expires: ${expiry}</span>
-          </td>
-          <td style="padding:16px;border-bottom:1px solid #eee;text-align:center;">
-            <span style="color:#999;font-size:11px;">Download from your account</span>
+          <td style="padding:16px;border-bottom:1px solid ${COLORS.gray200};text-align:center;">
+            <span style="color:${COLORS.gray600};font-size:13px;">Expires:</span><br/>
+            <span style="color:${COLORS.gray900};font-size:13px;font-weight:500;">${expiry}</span>
           </td>
         </tr>`;
       }
@@ -449,57 +530,89 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<body style="margin:0;padding:0;background:${COLORS.gray100};font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.gray100};padding:40px 16px;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+<table width="600" cellpadding="0" cellspacing="0" style="background:${COLORS.white};border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-  <!-- Header with brand color and icon -->
+  <!-- Header -->
   <tr>
-    <td style="background:linear-gradient(135deg, #c8a951 0%, #e8d48b 50%, #c8a951 100%);padding:28px 32px;text-align:center;">
-      <div style="margin-bottom:8px;">
-        <span style="font-size:32px;">🏆</span>
-      </div>
-      <h1 style="margin:0;color:#1a1a1a;font-size:22px;font-weight:700;letter-spacing:0.5px;">WorldStreet Gold</h1>
-      <p style="margin:4px 0 0;color:#333;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Digital Products</p>
+    <td style="background:${COLORS.secondary};padding:32px 40px;text-align:center;">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td style="background:${COLORS.primary};width:48px;height:48px;border-radius:10px;text-align:center;vertical-align:middle;">
+            <span style="font-size:24px;line-height:48px;">✦</span>
+          </td>
+          <td style="padding-left:14px;">
+            <h1 style="margin:0;color:${COLORS.white};font-size:24px;font-weight:700;letter-spacing:0.5px;">WorldStreet</h1>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Digital Products Banner -->
+  <tr>
+    <td style="background:linear-gradient(135deg,${COLORS.primary},${COLORS.primaryDark});padding:24px 40px;text-align:center;">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td style="padding-right:12px;vertical-align:middle;">
+            <span style="font-size:32px;">🎁</span>
+          </td>
+          <td style="vertical-align:middle;text-align:left;">
+            <span style="color:${COLORS.secondary};font-size:18px;font-weight:700;display:block;">Your Digital Products</span>
+            <span style="color:${COLORS.secondaryDark};font-size:13px;opacity:0.8;">Ready for download</span>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 
   <!-- Greeting -->
   <tr>
-    <td style="padding:32px 32px 16px;">
-      <h2 style="margin:0 0 8px;color:#111;font-size:20px;">Your files are ready, ${data.customerName}! 🎉</h2>
-      <p style="margin:0;color:#555;font-size:14px;line-height:1.6;">
-        Your payment for order <strong>${data.orderNumber}</strong> has been confirmed.
-        Your digital products are ready to download.
+    <td style="padding:40px 40px 24px;">
+      <h2 style="margin:0 0 12px;color:${COLORS.gray900};font-size:22px;font-weight:700;">Hey ${data.customerName}! 🎉</h2>
+      <p style="margin:0;color:${COLORS.gray600};font-size:15px;line-height:1.7;">
+        Great news! Your payment for order <strong style="color:${COLORS.gray900};">${data.orderNumber}</strong> has been confirmed.
+        Your digital products are ready and waiting for you.
       </p>
     </td>
   </tr>
 
-  <!-- Important notice -->
+  <!-- Important Notice -->
   <tr>
-    <td style="padding:0 32px 24px;">
-      <div style="background:#fff8e1;border-left:4px solid #c8a951;border-radius:0 6px 6px 0;padding:14px 16px;">
-        <p style="margin:0;color:#666;font-size:13px;line-height:1.5;">
-          <strong style="color:#333;">⚠️ Important:</strong> Each file can be downloaded a maximum of <strong>${data.downloads[0]?.maxDownloads || 2} times</strong>.
-          Download links expire on <strong>${new Date(data.downloads[0]?.expiresAt || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</strong>.
-          Please save your files after downloading.
-        </p>
+    <td style="padding:0 40px 32px;">
+      <div style="background:linear-gradient(135deg,${COLORS.warning}15,${COLORS.warning}08);border-radius:12px;padding:20px;border:1px solid ${COLORS.warning}40;">
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td style="padding-right:14px;vertical-align:top;">
+              <span style="font-size:24px;">⚠️</span>
+            </td>
+            <td>
+              <strong style="color:${COLORS.gray900};font-size:14px;display:block;margin-bottom:6px;">Before you download</strong>
+              <p style="margin:0;color:${COLORS.gray600};font-size:13px;line-height:1.6;">
+                Each file can be downloaded maximum of <strong style="color:${COLORS.gray900};">${data.downloads[0]?.maxDownloads || 2} times</strong>.
+                Links expire on <strong style="color:${COLORS.gray900};">${new Date(data.downloads[0]?.expiresAt || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</strong>.
+                Please save your files immediately after downloading.
+              </p>
+            </td>
+          </tr>
+        </table>
       </div>
     </td>
   </tr>
 
   <!-- Files Table -->
   <tr>
-    <td style="padding:0 32px;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+    <td style="padding:0 40px;">
+      <h3 style="margin:0 0 16px;color:${COLORS.gray900};font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Your Files</h3>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid ${COLORS.gray200};border-radius:10px;overflow:hidden;">
         <thead>
-          <tr style="background:#f8f9fa;">
-            <th style="padding:12px 16px;text-align:left;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">File</th>
-            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Limit</th>
-            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Expiry</th>
-            <th style="padding:12px 16px;text-align:center;font-size:12px;color:#666;text-transform:uppercase;border-bottom:2px solid #eee;">Action</th>
+          <tr style="background:${COLORS.secondary};">
+            <th style="padding:14px 16px;text-align:left;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">File</th>
+            <th style="padding:14px 16px;text-align:center;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Limit</th>
+            <th style="padding:14px 16px;text-align:center;font-size:11px;color:${COLORS.white};text-transform:uppercase;letter-spacing:0.5px;">Expiry</th>
           </tr>
         </thead>
         <tbody>
@@ -511,25 +624,24 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
 
   <!-- CTA Button -->
   <tr>
-    <td style="padding:32px;text-align:center;">
-      <a href="${downloadsUrl}" style="display:inline-block;background:linear-gradient(135deg, #c8a951, #e8d48b);color:#1a1a1a;padding:14px 36px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(200,169,81,0.3);">
-        Go to My Downloads
+    <td style="padding:40px;text-align:center;">
+      <a href="${downloadsUrl}" style="display:inline-block;background:${COLORS.primary};color:${COLORS.secondary};padding:18px 48px;border-radius:10px;text-decoration:none;font-size:16px;font-weight:700;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(254,215,0,0.4);">
+        Download My Files
       </a>
-      <p style="margin:12px 0 0;color:#666;font-size:12px;line-height:1.5;">
-        Click the button above to download your files from your account dashboard.
+      <p style="margin:16px 0 0;color:${COLORS.gray600};font-size:13px;line-height:1.5;">
+        Click the button above to access your downloads from your account dashboard.
       </p>
     </td>
   </tr>
 
   <!-- Footer -->
   <tr>
-    <td style="padding:24px 32px;border-top:1px solid #eee;text-align:center;">
-      <p style="margin:0;color:#999;font-size:12px;line-height:1.5;">
-        This is an automated email from WorldStreet Gold.<br/>
-        If you have questions about your purchase, please contact
-        <a href="mailto:support@worldstreetgold.com" style="color:#c8a951;">support@worldstreetgold.com</a>
+    <td style="padding:32px 40px;background:${COLORS.gray50};border-top:1px solid ${COLORS.gray200};text-align:center;">
+      <p style="margin:0 0 8px;color:${COLORS.gray600};font-size:13px;">
+        Need help? Contact us at
+        <a href="mailto:support@worldstreetgold.com" style="color:${COLORS.secondary};font-weight:600;">support@worldstreetgold.com</a>
       </p>
-      <p style="margin:8px 0 0;color:#bbb;font-size:11px;">
+      <p style="margin:0;color:${COLORS.gray600};font-size:12px;">
         © ${new Date().getFullYear()} WorldStreet Gold. All rights reserved.
       </p>
     </td>
