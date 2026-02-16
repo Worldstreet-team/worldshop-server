@@ -17,6 +17,26 @@ export async function getOrCreateProfile(user: JwtPayload) {
   });
 
   if (!profile) {
+    // Check if a profile with this email already exists (e.g. from a different auth instance)
+    if (user.email) {
+      const existingByEmail = await prisma.userProfile.findUnique({
+        where: { email: user.email },
+      });
+
+      if (existingByEmail) {
+        // Re-link the existing profile to the new Clerk userId
+        profile = await prisma.userProfile.update({
+          where: { email: user.email },
+          data: {
+            userId: user.id,
+            firstName: existingByEmail.firstName || user.firstName || 'User',
+            lastName: existingByEmail.lastName || user.lastName || '',
+          },
+        });
+        return profile;
+      }
+    }
+
     profile = await prisma.userProfile.create({
       data: {
         userId: user.id,
