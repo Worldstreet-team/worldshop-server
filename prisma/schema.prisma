@@ -36,9 +36,14 @@ enum Gender {
   PREFER_NOT_TO_SAY
 }
 
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
 model UserProfile {
   id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String    @unique // maps to external auth user id
+  userId      String    @unique // maps to Clerk user id
   email       String    @unique
   firstName   String
   lastName    String
@@ -46,6 +51,7 @@ model UserProfile {
   avatar      String?
   dateOfBirth DateTime?
   gender      Gender?
+  role        Role      @default(CUSTOMER)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }

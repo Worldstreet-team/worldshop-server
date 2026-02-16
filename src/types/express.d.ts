@@ -6,8 +6,6 @@ export interface JwtPayload {
   firstName: string;
   lastName: string;
   role: 'CUSTOMER' | 'ADMIN';
-  iat?: number;
-  exp?: number;
 }
 
 declare global {

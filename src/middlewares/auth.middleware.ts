@@ -1,79 +1,46 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { JWT_ACCESS_SECRET } from '../configs/envConfig';
-import type { JwtPayload } from '../types/express';
-
-/**
- * Extract the Bearer token from the Authorization header or cookie.
- */
-function extractToken(req: Request): string | null {
-  // 1. Check Authorization header
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.slice(7);
-  }
-
-  // 2. Check cookies (HttpOnly accessToken set by the auth service)
-  if (req.cookies?.accessToken) {
-    return req.cookies.accessToken;
-  }
-
-  return null;
-}
+import { getAuth, clerkClient } from '@clerk/express';
+import prisma from '../configs/prismaConfig';
 
 /**
  * requireAuth — Protects routes that need an authenticated user.
- * Verifies the JWT locally using the shared secret and attaches
- * the decoded payload to req.user.
+ * Uses Clerk to verify the session token and attaches user info to req.user.
+ * Also fetches the role from the UserProfile in our database.
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  const token = extractToken(req);
-
-  if (!token) {
-    res.status(401).json({
-      success: false,
-      message: 'Authentication required. Please log in.',
-    });
-    return;
-  }
-
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as Record<string, unknown>;
+    const auth = getAuth(req);
 
-    // Map the decoded JWT to our JwtPayload shape.
-    // WorldStreet Identity may use _id, userId, sub, or id — normalise here.
-    const userId = (decoded.id || decoded._id || decoded.userId || decoded.sub) as string | undefined;
-
-    if (!userId) {
+    if (!auth?.userId) {
       res.status(401).json({
         success: false,
-        message: 'Invalid token payload: no user ID found.',
-        _debug_keys: Object.keys(decoded), // temporary — remove after confirming
+        message: 'Authentication required. Please log in.',
       });
       return;
     }
 
+    // Fetch Clerk user details for name/email
+    const clerkUser = await clerkClient.users.getUser(auth.userId);
+
+    // Fetch role from our database
+    const profile = await prisma.userProfile.findUnique({
+      where: { userId: auth.userId },
+      select: { role: true },
+    });
+
     req.user = {
-      id: userId,
-      email: (decoded.email as string) || '',
-      firstName: (decoded.firstName as string) || (decoded.first_name as string) || '',
-      lastName: (decoded.lastName as string) || (decoded.last_name as string) || '',
-      role: ((decoded.role as string) || 'CUSTOMER').toUpperCase() as 'CUSTOMER' | 'ADMIN',
+      id: auth.userId,
+      email: clerkUser.emailAddresses?.[0]?.emailAddress || '',
+      firstName: clerkUser.firstName || '',
+      lastName: clerkUser.lastName || '',
+      role: (profile?.role as 'CUSTOMER' | 'ADMIN') || 'CUSTOMER',
     };
 
     next();
   } catch (err) {
-    if (err instanceof jwt.TokenExpiredError) {
-      res.status(401).json({
-        success: false,
-        message: 'Token expired. Please refresh your session.',
-      });
-      return;
-    }
-
     res.status(401).json({
       success: false,
-      message: 'Invalid token. Please log in again.',
+      message: 'Invalid session. Please log in again.',
     });
   }
 }
@@ -83,29 +50,28 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
  * unauthenticated requests. Use for routes that behave differently
  * for logged-in vs guest users (e.g. cart, product reviews).
  */
-export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
-  const token = extractToken(req);
-
-  if (!token) {
-    next();
-    return;
-  }
-
+export async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const decoded = jwt.verify(token, JWT_ACCESS_SECRET as string) as Record<string, unknown>;
-    const userId = (decoded.id || decoded._id || decoded.userId || decoded.sub) as string | undefined;
+    const auth = getAuth(req);
 
-    if (userId) {
+    if (auth?.userId) {
+      const clerkUser = await clerkClient.users.getUser(auth.userId);
+
+      const profile = await prisma.userProfile.findUnique({
+        where: { userId: auth.userId },
+        select: { role: true },
+      });
+
       req.user = {
-        id: userId,
-        email: (decoded.email as string) || '',
-        firstName: (decoded.firstName as string) || (decoded.first_name as string) || '',
-        lastName: (decoded.lastName as string) || (decoded.last_name as string) || '',
-        role: ((decoded.role as string) || 'CUSTOMER').toUpperCase() as 'CUSTOMER' | 'ADMIN',
+        id: auth.userId,
+        email: clerkUser.emailAddresses?.[0]?.emailAddress || '',
+        firstName: clerkUser.firstName || '',
+        lastName: clerkUser.lastName || '',
+        role: (profile?.role as 'CUSTOMER' | 'ADMIN') || 'CUSTOMER',
       };
     }
   } catch {
-    // Token invalid/expired — proceed as guest
+    // Session invalid — proceed as guest
   }
 
   next();
