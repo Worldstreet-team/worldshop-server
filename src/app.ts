@@ -1,7 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 import * as Sentry from '@sentry/node';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
+import { clerkMiddleware } from '@clerk/express';
 
 import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
@@ -46,8 +46,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID'],
 }));
 
-// Parse cookies (needed for HttpOnly JWT cookies)
-app.use(cookieParser());
+// Clerk middleware — verifies session tokens on every request
+app.use(clerkMiddleware());
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
