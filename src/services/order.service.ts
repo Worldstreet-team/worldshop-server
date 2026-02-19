@@ -5,7 +5,11 @@ import type {
   PaginatedOrders,
   ShippingAddress,
 } from '../types/order.types';
-import type { CreateOrderInput, OrdersQueryInput, CancelOrderInput } from '../validators/order.validator';
+import type {
+  CreateOrderInput,
+  OrdersQueryInput,
+  CancelOrderInput,
+} from '../validators/order.validator';
 import { calculateShipping, isDigitalOnlyCart } from './checkout.service';
 import { OrderStatus } from '../../generated/prisma';
 import { signR2Key } from '../utils/signUrl';
@@ -27,7 +31,7 @@ function generateOrderNumber(): string {
  */
 export async function createOrder(
   userId: string,
-  input: CreateOrderInput
+  input: CreateOrderInput,
 ): Promise<OrderWithItems> {
   // Get user's cart
   const cart = await prisma.cart.findUnique({
@@ -66,7 +70,8 @@ export async function createOrder(
   for (const item of cart.items) {
     const isDigital = item.product.type === 'DIGITAL';
     const availableStock = item.variant?.stock ?? item.product.stock;
-    const price = item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
+    const price =
+      item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
 
     // Check product is active
     if (!item.product.isActive) {
@@ -77,7 +82,7 @@ export async function createOrder(
     if (!isDigital && availableStock < item.quantity) {
       throw createError(
         400,
-        `Only ${availableStock} of ${item.product.name} available`
+        `Only ${availableStock} of ${item.product.name} available`,
       );
     }
 
@@ -87,8 +92,13 @@ export async function createOrder(
       const images = Array.isArray(item.product.images)
         ? item.product.images
         : JSON.parse(item.product.images as string);
-      const primary = images.find((img: { isPrimary?: boolean }) => img.isPrimary);
-      primaryImage = primary?.url || images[0]?.url || null;
+      const primary = images.find(
+        (img: { isPrimary?: boolean }) => img.isPrimary,
+      );
+      // Prefer cloudflareId (R2 key) so the snapshot can be signed on retrieval.
+      // Fall back to url only if no cloudflareId exists.
+      const bestImg = primary || images[0];
+      primaryImage = (bestImg?.cloudflareId as string) || bestImg?.url || null;
     } catch {
       // No images
     }
@@ -101,7 +111,8 @@ export async function createOrder(
       variantId: item.variantId,
       productName: item.product.name,
       productImage: primaryImage,
-      sku: item.variant?.stockKeepingUnit ?? item.product.stockKeepingUnit ?? null,
+      sku:
+        item.variant?.stockKeepingUnit ?? item.product.stockKeepingUnit ?? null,
       variantName: item.variant?.name ?? null,
       quantity: item.quantity,
       unitPrice: price,
@@ -114,8 +125,8 @@ export async function createOrder(
 
   // For digital-only orders, shipping address can be empty
   const shippingAddress = digitalOnly
-    ? (input.shippingAddress || {}) as object
-    : input.shippingAddress as object;
+    ? ((input.shippingAddress || {}) as object)
+    : (input.shippingAddress as object);
 
   // Create order in a transaction
   const order = await prisma.$transaction(async (tx) => {
@@ -188,7 +199,7 @@ export async function createOrder(
  */
 export async function getOrders(
   userId: string,
-  query: OrdersQueryInput
+  query: OrdersQueryInput,
 ): Promise<PaginatedOrders> {
   const { page, limit, status } = query;
   const skip = (page - 1) * limit;
@@ -235,7 +246,7 @@ export async function getOrders(
  */
 export async function getOrderById(
   orderId: string,
-  userId: string
+  userId: string,
 ): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -269,7 +280,7 @@ export async function getOrderById(
  */
 export async function getOrderByNumber(
   orderNumber: string,
-  userId: string
+  userId: string,
 ): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({
     where: { orderNumber },
@@ -305,7 +316,7 @@ export async function getOrderByNumber(
 export async function cancelOrder(
   orderId: string,
   userId: string,
-  input?: CancelOrderInput
+  input?: CancelOrderInput,
 ): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -328,7 +339,7 @@ export async function cancelOrder(
   if (!cancellableStatuses.includes(order.status)) {
     throw createError(
       400,
-      `Cannot cancel order with status "${order.status}". Only unpaid orders can be cancelled.`
+      `Cannot cancel order with status "${order.status}". Only unpaid orders can be cancelled.`,
     );
   }
 
@@ -442,7 +453,9 @@ async function formatOrderResponse(order: {
       productId: item.productId,
       variantId: item.variantId,
       productName: item.productName,
-      productImage: item.productImage ? await signR2Key(item.productImage) : null,
+      productImage: item.productImage
+        ? await signR2Key(item.productImage)
+        : null,
       sku: item.sku,
       variantName: item.variantName,
       quantity: item.quantity,
@@ -451,7 +464,7 @@ async function formatOrderResponse(order: {
       createdAt: item.createdAt,
       product: item.product,
       variant: item.variant,
-    }))
+    })),
   );
 
   return {

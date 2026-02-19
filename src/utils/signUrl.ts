@@ -5,15 +5,13 @@
  * - Only signs keys that look like R2 keys (no protocol prefix).
  * - Relative paths (starting with /) are left unchanged (local static files).
  * - Already-signed or full http(s) URLs are left unchanged.
- * - Product image expiry: 30 days (re-signed on every fetch).
- * - Other assets (digital downloads etc.): 7 days default.
+ * - All image expiry: 1 year (re-signed on every fetch).
  */
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2Client, R2_BUCKET } from '../configs/r2Config';
 
-const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 604 800
-const THIRTY_DAYS_SECONDS = 360 * 24 * 60 * 60; // 2 592 000 — product images
+const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60; // 31 536 000
 
 /**
  * Check if a string is an R2 key (not a full URL and not a relative path).
@@ -38,7 +36,7 @@ function isR2Key(value: string): boolean {
  */
 export async function signR2Key(
   key: string,
-  expiresIn: number = THIRTY_DAYS_SECONDS,
+  expiresIn: number = ONE_YEAR_SECONDS,
 ): Promise<string> {
   if (!isR2Key(key)) return key;
 
@@ -71,8 +69,16 @@ export async function signProductImages(
 
   return Promise.all(
     parsed.map(async (img) => {
-      if (typeof img.url === 'string') {
-        return { ...img, url: await signR2Key(img.url, THIRTY_DAYS_SECONDS) };
+      // Prefer cloudflareId (the R2 key) over url (which may already be a full public URL)
+      const keyToSign =
+        typeof img.cloudflareId === 'string' && isR2Key(img.cloudflareId)
+          ? img.cloudflareId
+          : typeof img.url === 'string' && isR2Key(img.url)
+            ? img.url
+            : null;
+
+      if (keyToSign) {
+        return { ...img, url: await signR2Key(keyToSign, ONE_YEAR_SECONDS) };
       }
       return img;
     }),
