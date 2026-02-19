@@ -227,7 +227,7 @@ enum OrderStatus {
 model Order {
   id              String               @id @default(auto()) @map("_id") @db.ObjectId
   orderNumber     String               @unique
-  userId          String               @db.ObjectId
+  userId          String               // maps to external auth user id
   status          OrderStatus          @default(CREATED)
 
   items           OrderItem[]
@@ -308,7 +308,7 @@ model Payment {
   id          String        @id @default(auto()) @map("_id") @db.ObjectId
   orderId     String        @unique @db.ObjectId
   order       Order         @relation(fields: [orderId], references: [id])
-  userId      String        @db.ObjectId
+  userId      String        // maps to external auth user id
   amount      Float                              // Amount in NGN
   currency    String        @default("NGN")
   status      PaymentStatus @default(PENDING)
