@@ -5,13 +5,15 @@
  * - Only signs keys that look like R2 keys (no protocol prefix).
  * - Relative paths (starting with /) are left unchanged (local static files).
  * - Already-signed or full http(s) URLs are left unchanged.
- * - Expiry: 7 days (604 800 seconds).
+ * - Product image expiry: 30 days (re-signed on every fetch).
+ * - Other assets (digital downloads etc.): 7 days default.
  */
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2Client, R2_BUCKET } from '../configs/r2Config';
 
 const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 604 800
+const THIRTY_DAYS_SECONDS = 360 * 24 * 60 * 60; // 2 592 000 — product images
 
 /**
  * Check if a string is an R2 key (not a full URL and not a relative path).
@@ -20,7 +22,11 @@ const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 604 800
 function isR2Key(value: string): boolean {
   if (!value) return false;
   // Already a full URL or a relative static path
-  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/')) {
+  if (
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/')
+  ) {
     return false;
   }
   return true;
@@ -30,7 +36,10 @@ function isR2Key(value: string): boolean {
  * Sign a single R2 key and return a presigned URL.
  * Returns the original string if it's not an R2 key.
  */
-export async function signR2Key(key: string): Promise<string> {
+export async function signR2Key(
+  key: string,
+  expiresIn: number = THIRTY_DAYS_SECONDS,
+): Promise<string> {
   if (!isR2Key(key)) return key;
 
   const command = new GetObjectCommand({
@@ -38,7 +47,7 @@ export async function signR2Key(key: string): Promise<string> {
     Key: key,
   });
 
-  return getSignedUrl(r2Client, command, { expiresIn: SEVEN_DAYS_SECONDS });
+  return getSignedUrl(r2Client, command, { expiresIn });
 }
 
 /**
@@ -46,7 +55,7 @@ export async function signR2Key(key: string): Promise<string> {
  * Each image object has a `url` field that may be an R2 key.
  */
 export async function signProductImages(
-  images: unknown
+  images: unknown,
 ): Promise<Array<Record<string, unknown>>> {
   let parsed: Array<Record<string, unknown>> = [];
 
@@ -63,10 +72,10 @@ export async function signProductImages(
   return Promise.all(
     parsed.map(async (img) => {
       if (typeof img.url === 'string') {
-        return { ...img, url: await signR2Key(img.url) };
+        return { ...img, url: await signR2Key(img.url, THIRTY_DAYS_SECONDS) };
       }
       return img;
-    })
+    }),
   );
 }
 
@@ -74,10 +83,12 @@ export async function signProductImages(
  * Sign images on a single product object (mutates and returns).
  */
 export async function signProductRecord<T extends { images?: unknown }>(
-  product: T
+  product: T,
 ): Promise<T> {
   if (product.images) {
-    (product as Record<string, unknown>).images = await signProductImages(product.images);
+    (product as Record<string, unknown>).images = await signProductImages(
+      product.images,
+    );
   }
   return product;
 }
@@ -86,7 +97,7 @@ export async function signProductRecord<T extends { images?: unknown }>(
  * Sign images on an array of product objects.
  */
 export async function signProductRecords<T extends { images?: unknown }>(
-  products: T[]
+  products: T[],
 ): Promise<T[]> {
   return Promise.all(products.map((p) => signProductRecord(p)));
 }
