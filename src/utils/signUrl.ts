@@ -4,10 +4,8 @@
  * Signs R2 object keys with presigned URLs for secure access.
  * - Only signs keys that look like R2 keys (no protocol prefix).
  * - Relative paths (starting with /) are left unchanged (local static files).
- * - Already-signed or full http(s) URLs are left unchanged.
- * - All images are re-signed on every request — no caching of URLs.
- * - Expiry: 7 days (R2/S3 SigV4 hard maximum). Re-signed fresh on every fetch.
- * - Source key is always cloudflareId — url is never used for signing.
+ * - Handles both bare R2 keys ("categories/abc.jpg") and full R2 https:// URLs
+ *   (extracts path and signs it either way).
  */
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -16,35 +14,41 @@ import { r2Client, R2_BUCKET } from '../configs/r2Config';
 const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 604 800 — R2/S3 SigV4 maximum
 
 /**
- * Check if a string is an R2 key (not a full URL and not a relative path).
- * R2 keys look like: "products/abc123.png" or "digital-products/file.pdf"
+ * Extract an R2 key from either a bare key or a full https:// R2 URL.
+ * Returns null for relative paths (starting with /) or unparseable values.
  */
-function isR2Key(value: string): boolean {
-  if (!value) return false;
-  // Already a full URL or a relative static path
-  if (
-    value.startsWith('http://') ||
-    value.startsWith('https://') ||
-    value.startsWith('/')
-  ) {
-    return false;
+function resolveR2Key(value: string): string | null {
+  if (!value) return null;
+  // Relative static path — not an R2 asset
+  if (value.startsWith('/')) return null;
+  // Full URL — extract the path component as the key
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    try {
+      const key = new URL(value).pathname.replace(/^\//, '');
+      return key || null;
+    } catch {
+      return null;
+    }
   }
-  return true;
+  // Already a bare R2 key (e.g. "products/abc.jpg")
+  return value;
 }
 
 /**
- * Sign a single R2 key and return a presigned URL.
- * Returns the original string if it's not an R2 key.
+ * Sign a single R2 key (or full R2 URL) and return a presigned URL.
+ * Accepts bare keys like "categories/abc.jpg" or full https:// R2 URLs.
+ * Returns the original string unchanged only for relative paths ("/...").
  */
 export async function signR2Key(
   key: string,
   expiresIn: number = SEVEN_DAYS_SECONDS,
 ): Promise<string> {
-  if (!isR2Key(key)) return key;
+  const r2Key = resolveR2Key(key);
+  if (!r2Key) return key;
 
   const command = new GetObjectCommand({
     Bucket: R2_BUCKET,
-    Key: key,
+    Key: r2Key,
   });
 
   return getSignedUrl(r2Client, command, { expiresIn });
