@@ -7,7 +7,7 @@ import type {
   OrderStatsQueryInput,
 } from '../validators/admin.order.validator';
 import type { OrderWithItems, PaginatedOrders } from '../types/order.types';
-import { signR2Key, signR2Key as signAssetKey } from '../utils/signUrl';
+import { signR2Key, signProductImages } from '../utils/signUrl';
 import { sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
 import { globalLog as logger } from '../configs/loggerConfig';
@@ -15,8 +15,16 @@ import { globalLog as logger } from '../configs/loggerConfig';
 // ─── Valid status transitions ───────────────────────────────────
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CREATED]: [OrderStatus.CANCELLED],
-  [OrderStatus.PAID]: [OrderStatus.PROCESSING, OrderStatus.CANCELLED, OrderStatus.REFUNDED],
-  [OrderStatus.PROCESSING]: [OrderStatus.SHIPPED, OrderStatus.CANCELLED, OrderStatus.REFUNDED],
+  [OrderStatus.PAID]: [
+    OrderStatus.PROCESSING,
+    OrderStatus.CANCELLED,
+    OrderStatus.REFUNDED,
+  ],
+  [OrderStatus.PROCESSING]: [
+    OrderStatus.SHIPPED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REFUNDED,
+  ],
   [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED, OrderStatus.REFUNDED],
   [OrderStatus.DELIVERED]: [OrderStatus.REFUNDED],
   [OrderStatus.CANCELLED]: [],
@@ -27,7 +35,7 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
  * List all orders for admin (no ownership filter).
  */
 export async function adminListOrders(
-  query: AdminOrdersQueryInput
+  query: AdminOrdersQueryInput,
 ): Promise<PaginatedOrders> {
   const { page, limit, status, search, dateFrom, dateTo, sortBy } = query;
 
@@ -159,7 +167,9 @@ export async function resendDigitalDelivery(orderId: string) {
     throw createError(404, 'Order not found');
   }
 
-  const hasDigitalItems = order.items.some((item) => item.product.type === 'DIGITAL');
+  const hasDigitalItems = order.items.some(
+    (item) => item.product.type === 'DIGITAL',
+  );
   if (!hasDigitalItems) {
     throw createError(400, 'Order has no digital products');
   }
@@ -196,8 +206,10 @@ export async function resendDigitalDelivery(orderId: string) {
 
   const downloadInfo = await Promise.all(
     downloads.map(async (dl) => {
-      const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
-      const downloadUrl = asset?.r2Key ? await signAssetKey(asset.r2Key) : '';
+      const asset = await prisma.digitalAsset.findUnique({
+        where: { id: dl.assetId },
+      });
+      const downloadUrl = asset?.r2Key ? await signR2Key(asset.r2Key) : '';
       return {
         fileName: asset?.fileName || 'Unknown file',
         fileSize: asset?.fileSize || 0,
@@ -206,7 +218,7 @@ export async function resendDigitalDelivery(orderId: string) {
         maxDownloads: dl.maxDownloads,
         expiresAt: dl.expiresAt,
       };
-    })
+    }),
   );
 
   const sent = await sendDigitalProductDelivery({
@@ -234,7 +246,7 @@ export async function resendDigitalDelivery(orderId: string) {
 export async function updateOrderStatus(
   orderId: string,
   input: UpdateOrderStatusInput,
-  adminId: string
+  adminId: string,
 ): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -255,7 +267,7 @@ export async function updateOrderStatus(
       400,
       `Cannot transition from "${currentStatus}" to "${newStatus}". Allowed: ${
         allowed.length > 0 ? allowed.join(', ') : 'none (terminal state)'
-      }`
+      }`,
     );
   }
 
@@ -283,7 +295,10 @@ export async function updateOrderStatus(
   }
 
   // Handle cancellation — restore stock for physical products
-  if (newStatus === OrderStatus.CANCELLED || newStatus === OrderStatus.REFUNDED) {
+  if (
+    newStatus === OrderStatus.CANCELLED ||
+    newStatus === OrderStatus.REFUNDED
+  ) {
     const updatedOrder = await prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: orderId },
@@ -382,19 +397,38 @@ export async function getOrderStats(query: OrderStatsQueryInput) {
     refundedOrders,
   ] = await Promise.all([
     prisma.order.count({ where: where as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.PAID } as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.PROCESSING } as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.SHIPPED } as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.DELIVERED } as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.CANCELLED } as any }),
-    prisma.order.count({ where: { ...where, status: OrderStatus.REFUNDED } as any }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.PAID } as any,
+    }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.PROCESSING } as any,
+    }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.SHIPPED } as any,
+    }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.DELIVERED } as any,
+    }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.CANCELLED } as any,
+    }),
+    prisma.order.count({
+      where: { ...where, status: OrderStatus.REFUNDED } as any,
+    }),
   ]);
 
   // Calculate revenue (from completed/paid orders)
   const revenueResult = await prisma.order.aggregate({
     where: {
       ...where,
-      status: { in: [OrderStatus.PAID, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
+      status: {
+        in: [
+          OrderStatus.PAID,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ],
+      },
     } as any,
     _sum: { total: true },
   });
@@ -469,22 +503,36 @@ async function formatAdminOrderResponse(order: {
 }): Promise<OrderWithItems> {
   // Sign product images in order items
   const signedItems = await Promise.all(
-    order.items.map(async (item) => ({
-      id: item.id,
-      orderId: item.orderId,
-      productId: item.productId,
-      variantId: item.variantId,
-      productName: item.productName,
-      productImage: item.productImage ? await signR2Key(item.productImage) : null,
-      sku: item.sku,
-      variantName: item.variantName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      createdAt: item.createdAt,
-      product: item.product,
-      variant: item.variant,
-    }))
+    order.items.map(async (item) => {
+      // Sign the item snapshot image (stored as R2 key for new orders)
+      const signedProductImage = item.productImage
+        ? await signR2Key(item.productImage)
+        : null;
+
+      // Sign the nested live product's images array (cloudflareId → url)
+      let signedProduct = item.product;
+      if (signedProduct?.images) {
+        const signedImages = await signProductImages(signedProduct.images);
+        signedProduct = { ...signedProduct, images: signedImages };
+      }
+
+      return {
+        id: item.id,
+        orderId: item.orderId,
+        productId: item.productId,
+        variantId: item.variantId,
+        productName: item.productName,
+        productImage: signedProductImage,
+        sku: item.sku,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        createdAt: item.createdAt,
+        product: signedProduct,
+        variant: item.variant,
+      };
+    }),
   );
 
   return {

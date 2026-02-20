@@ -1,8 +1,15 @@
 import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
-import type { CartWithTotals, CartItemWithProduct, SHIPPING_CONFIG } from '../types/cart.types';
-import type { AddToCartInput, UpdateCartItemInput } from '../validators/cart.validator';
-import { signProductImages, signR2Key } from '../utils/signUrl';
+import type {
+  CartWithTotals,
+  CartItemWithProduct,
+  SHIPPING_CONFIG,
+} from '../types/cart.types';
+import type {
+  AddToCartInput,
+  UpdateCartItemInput,
+} from '../validators/cart.validator';
+import { signProductImages } from '../utils/signUrl';
 
 // Shipping configuration (hardcoded)
 const SHIPPING = {
@@ -15,7 +22,7 @@ const SHIPPING = {
  */
 export async function getOrCreateCart(
   userId?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<CartWithTotals> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
@@ -46,7 +53,6 @@ export async function getOrCreateCart(
       include,
     });
 
-
     // 2. If none, migrate guest cart (if exists)
     if (!cart && sessionId) {
       const guestCart = await prisma.cart.findUnique({
@@ -70,9 +76,9 @@ export async function getOrCreateCart(
     // 3. Still nothing? Create fresh user cart
     if (!cart) {
       cart = await prisma.cart.create({
-        data: { 
-          userId, 
-          sessionId: `user_${userId}` 
+        data: {
+          userId,
+          sessionId: `user_${userId}`,
         },
         include,
       });
@@ -104,7 +110,7 @@ export async function getOrCreateCart(
 export async function addToCart(
   input: AddToCartInput,
   userId?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<CartWithTotals> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
@@ -145,16 +151,18 @@ export async function addToCart(
     cart = await prisma.cart.findUnique({ where: { userId } });
     if (!cart) {
       // Use unique sessionId to avoid MongoDB null conflicts
-      cart = await prisma.cart.create({ 
-        data: { 
-          userId, 
-          sessionId: `user_${userId}` 
-        } 
+      cart = await prisma.cart.create({
+        data: {
+          userId,
+          sessionId: `user_${userId}`,
+        },
       });
     }
   } else {
     // Guest: find by sessionId
-    cart = await prisma.cart.findUnique({ where: { sessionId: sessionId as string } });
+    cart = await prisma.cart.findUnique({
+      where: { sessionId: sessionId as string },
+    });
     if (!cart) {
       cart = await prisma.cart.create({ data: { sessionId } });
     }
@@ -203,7 +211,7 @@ export async function updateCartItem(
   itemId: string,
   input: UpdateCartItemInput,
   userId?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<CartWithTotals> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
@@ -255,7 +263,7 @@ export async function updateCartItem(
 export async function removeCartItem(
   itemId: string,
   userId?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<CartWithTotals> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
@@ -293,7 +301,7 @@ export async function removeCartItem(
  */
 export async function clearCart(
   userId?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<{ message: string }> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
@@ -323,7 +331,7 @@ export async function clearCart(
  */
 export async function mergeCart(
   userId: string,
-  guestSessionId: string
+  guestSessionId: string,
 ): Promise<CartWithTotals> {
   // Find guest cart
   const guestCart = await prisma.cart.findUnique({
@@ -350,9 +358,9 @@ export async function mergeCart(
 
   if (!userCart) {
     userCart = await prisma.cart.create({
-      data: { 
-        userId, 
-        sessionId: `user_${userId}` 
+      data: {
+        userId,
+        sessionId: `user_${userId}`,
       },
     });
   }
@@ -367,7 +375,7 @@ export async function mergeCart(
     const existingItem = userItems.find(
       (item) =>
         item.productId === guestItem.productId &&
-        item.variantId === guestItem.variantId
+        item.variantId === guestItem.variantId,
     );
 
     const availableStock = guestItem.variant?.stock ?? guestItem.product.stock;
@@ -376,7 +384,7 @@ export async function mergeCart(
       // Merge quantities (capped at available stock)
       const newQuantity = Math.min(
         existingItem.quantity + guestItem.quantity,
-        availableStock
+        availableStock,
       );
 
       await prisma.cartItem.update({
@@ -442,60 +450,71 @@ async function formatCartResponse(cart: {
     } | null;
   }>;
 }): Promise<CartWithTotals> {
-  const items: CartItemWithProduct[] = await Promise.all(cart.items.map(async (item) => {
-    // Determine the price (variant price > sale price > base price)
-    const price =
-      item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
+  const items: CartItemWithProduct[] = await Promise.all(
+    cart.items.map(async (item) => {
+      // Determine the price (variant price > sale price > base price)
+      const price =
+        item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
 
-    // Parse images
-    let images: Array<{ url: string; alt?: string; isPrimary?: boolean }> = [];
-    try {
-      images = Array.isArray(item.product.images)
-        ? item.product.images as Array<{ url: string; alt?: string; isPrimary?: boolean }>
-        : JSON.parse(item.product.images as string);
-    } catch {
-      images = [];
-    }
+      // Parse images
+      let images: Array<{ url: string; alt?: string; isPrimary?: boolean }> =
+        [];
+      try {
+        images = Array.isArray(item.product.images)
+          ? (item.product.images as Array<{
+              url: string;
+              alt?: string;
+              isPrimary?: boolean;
+            }>)
+          : JSON.parse(item.product.images as string);
+      } catch {
+        images = [];
+      }
 
-    // Sign image URLs
-    const signedImages = await signProductImages(images);
+      // Sign image URLs
+      const signedImages = await signProductImages(images);
 
-    return {
-      id: item.id,
-      cartId: item.cartId,
-      productId: item.productId,
-      variantId: item.variantId,
-      quantity: item.quantity,
-      price,
-      totalPrice: price * item.quantity,
-      product: {
-        id: item.product.id,
-        name: item.product.name,
-        slug: item.product.slug,
-        basePrice: item.product.basePrice,
-        salePrice: item.product.salePrice,
-        stock: item.product.stock,
-        images: signedImages as Array<{ url: string; alt?: string; isPrimary?: boolean }>,
-      },
-      variant: item.variant
-        ? {
-          id: item.variant.id,
-          name: item.variant.name,
-          price: item.variant.price,
-          stock: item.variant.stock,
-        }
-        : null,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    };
-  }));
+      return {
+        id: item.id,
+        cartId: item.cartId,
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+        price,
+        totalPrice: price * item.quantity,
+        product: {
+          id: item.product.id,
+          name: item.product.name,
+          slug: item.product.slug,
+          basePrice: item.product.basePrice,
+          salePrice: item.product.salePrice,
+          stock: item.product.stock,
+          images: signedImages as Array<{
+            url: string;
+            alt?: string;
+            isPrimary?: boolean;
+          }>,
+        },
+        variant: item.variant
+          ? {
+              id: item.variant.id,
+              name: item.variant.name,
+              price: item.variant.price,
+              stock: item.variant.stock,
+            }
+          : null,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      };
+    }),
+  );
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
 
   // Digital-only carts get free shipping; otherwise flat rate unless above threshold
   const isDigitalOnly = cart.items.every(
-    (item) => (item.product as { type?: string }).type === 'DIGITAL'
+    (item) => (item.product as { type?: string }).type === 'DIGITAL',
   );
   const shipping = isDigitalOnly
     ? 0
