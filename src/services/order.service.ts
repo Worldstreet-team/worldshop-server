@@ -12,7 +12,7 @@ import type {
 } from '../validators/order.validator';
 import { calculateShipping, isDigitalOnlyCart } from './checkout.service';
 import { OrderStatus } from '../../generated/prisma';
-import { signR2Key } from '../utils/signUrl';
+import { signR2Key, signProductImages } from '../utils/signUrl';
 
 /**
  * Generate a unique order number.
@@ -447,24 +447,36 @@ async function formatOrderResponse(order: {
 }): Promise<OrderWithItems> {
   // Sign product images in order items
   const signedItems = await Promise.all(
-    order.items.map(async (item) => ({
-      id: item.id,
-      orderId: item.orderId,
-      productId: item.productId,
-      variantId: item.variantId,
-      productName: item.productName,
-      productImage: item.productImage
+    order.items.map(async (item) => {
+      // Sign the item snapshot image (stored as R2 key for new orders)
+      const signedProductImage = item.productImage
         ? await signR2Key(item.productImage)
-        : null,
-      sku: item.sku,
-      variantName: item.variantName,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      createdAt: item.createdAt,
-      product: item.product,
-      variant: item.variant,
-    })),
+        : null;
+
+      // Sign the nested live product's images array (cloudflareId → url)
+      let signedProduct = item.product;
+      if (signedProduct?.images) {
+        const signedImages = await signProductImages(signedProduct.images);
+        signedProduct = { ...signedProduct, images: signedImages };
+      }
+
+      return {
+        id: item.id,
+        orderId: item.orderId,
+        productId: item.productId,
+        variantId: item.variantId,
+        productName: item.productName,
+        productImage: signedProductImage,
+        sku: item.sku,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        createdAt: item.createdAt,
+        product: signedProduct,
+        variant: item.variant,
+      };
+    }),
   );
 
   return {

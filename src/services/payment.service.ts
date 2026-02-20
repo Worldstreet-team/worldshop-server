@@ -15,7 +15,6 @@ import type {
 } from '../types/payment.types';
 import { sendOrderReceipt, sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
-import { signR2Key } from '../utils/signUrl';
 import { globalLog as logger } from '../configs/loggerConfig';
 
 type ReceiptMetadata = {
@@ -42,7 +41,7 @@ async function sendReceiptIfNeeded(
   orderId: string,
   paidAt: string,
   paymentChannel: string,
-  fallbackEmail?: string
+  fallbackEmail?: string,
 ): Promise<void> {
   const paymentRecord = await prisma.payment.findUnique({
     where: { id: paymentId },
@@ -94,11 +93,12 @@ async function sendReceiptIfNeeded(
     return;
   }
 
-  const customerName = profile?.firstName || shippingAddr?.firstName || 'Customer';
+  const customerName =
+    profile?.firstName || shippingAddr?.firstName || 'Customer';
 
   // Check if this order contains only digital products
   const isDigitalOnly = order.items.every(
-    (item) => item.product.type === 'DIGITAL'
+    (item) => item.product.type === 'DIGITAL',
   );
 
   if (isDigitalOnly) {
@@ -108,21 +108,25 @@ async function sendReceiptIfNeeded(
       order.userId,
       customerEmail,
       customerName,
-      order.orderNumber
+      order.orderNumber,
     );
 
     if (deliverySent) {
       // Mark receipt as sent to prevent duplicates
-      void prisma.payment.update({
-        where: { id: paymentRecord.id },
-        data: {
-          metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
-        },
-      }).catch(() => {
-        logger.warn('[Email] Failed to persist receiptSentAt metadata', {
-          paymentId: paymentRecord.id,
+      void prisma.payment
+        .update({
+          where: { id: paymentRecord.id },
+          data: {
+            metadata: withReceiptSentAt(
+              paymentRecord.metadata,
+            ) as Prisma.InputJsonValue,
+          },
+        })
+        .catch(() => {
+          logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+            paymentId: paymentRecord.id,
+          });
         });
-      });
     } else {
       logger.warn('[DigitalDelivery] Email not sent; receipt not marked', {
         orderId,
@@ -131,29 +135,39 @@ async function sendReceiptIfNeeded(
     }
   } else {
     // For physical/mixed orders: create download records first, then include links in the receipt
-    let digitalDownloads: {
-      fileName: string;
-      fileSize: number;
-      downloadUrl: string;
-      maxDownloads: number;
-      expiresAt: Date;
-    }[] | undefined;
+    let digitalDownloads:
+      | {
+          fileName: string;
+          fileSize: number;
+          downloadUrl: string;
+          maxDownloads: number;
+          expiresAt: Date;
+        }[]
+      | undefined;
 
-    const hasDigitalItems = order.items.some((item) => item.product.type === 'DIGITAL');
+    const hasDigitalItems = order.items.some(
+      (item) => item.product.type === 'DIGITAL',
+    );
 
     if (hasDigitalItems) {
       try {
         try {
           await createDownloadRecords(orderId, order.userId);
         } catch (createErr) {
-          logger.warn('[Email] createDownloadRecords error (may be duplicate)', {
-            orderId,
-            error: (createErr as Error).message,
-          });
+          logger.warn(
+            '[Email] createDownloadRecords error (may be duplicate)',
+            {
+              orderId,
+              error: (createErr as Error).message,
+            },
+          );
         }
 
         const orderItemIds = (
-          await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })
+          await prisma.orderItem.findMany({
+            where: { orderId },
+            select: { id: true },
+          })
         ).map((i) => i.id);
 
         const downloads = await prisma.downloadRecord.findMany({
@@ -163,7 +177,9 @@ async function sendReceiptIfNeeded(
         if (downloads.length > 0) {
           digitalDownloads = await Promise.all(
             downloads.map(async (dl) => {
-              const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+              const asset = await prisma.digitalAsset.findUnique({
+                where: { id: dl.assetId },
+              });
               return {
                 fileName: asset?.fileName || 'Unknown file',
                 fileSize: asset?.fileSize || 0,
@@ -171,14 +187,17 @@ async function sendReceiptIfNeeded(
                 maxDownloads: dl.maxDownloads,
                 expiresAt: dl.expiresAt,
               };
-            })
+            }),
           );
         }
       } catch (err) {
-        logger.error('[Email] Failed to prepare digital downloads for receipt', {
-          orderId,
-          error: (err as Error).message,
-        });
+        logger.error(
+          '[Email] Failed to prepare digital downloads for receipt',
+          {
+            orderId,
+            error: (err as Error).message,
+          },
+        );
       }
     }
 
@@ -209,16 +228,20 @@ async function sendReceiptIfNeeded(
         return;
       }
 
-      return prisma.payment.update({
-        where: { id: paymentRecord.id },
-        data: {
-          metadata: withReceiptSentAt(paymentRecord.metadata) as Prisma.InputJsonValue,
-        },
-      }).catch(() => {
-        logger.warn('[Email] Failed to persist receiptSentAt metadata', {
-          paymentId: paymentRecord.id,
+      return prisma.payment
+        .update({
+          where: { id: paymentRecord.id },
+          data: {
+            metadata: withReceiptSentAt(
+              paymentRecord.metadata,
+            ) as Prisma.InputJsonValue,
+          },
+        })
+        .catch(() => {
+          logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+            paymentId: paymentRecord.id,
+          });
         });
-      });
     });
   }
 }
@@ -238,18 +261,27 @@ async function handleDigitalDelivery(
     // Create download records for any digital products (ignore duplicates on retry)
     try {
       await createDownloadRecords(orderId, userId);
-      logger.info('[DigitalDelivery] Download records created', { orderId, orderNumber });
+      logger.info('[DigitalDelivery] Download records created', {
+        orderId,
+        orderNumber,
+      });
     } catch (createErr) {
       // Duplicates from webhook+verify race are expected — continue to query & send email
-      logger.warn('[DigitalDelivery] createDownloadRecords error (may be duplicate)', {
-        orderId,
-        error: (createErr as Error).message,
-      });
+      logger.warn(
+        '[DigitalDelivery] createDownloadRecords error (may be duplicate)',
+        {
+          orderId,
+          error: (createErr as Error).message,
+        },
+      );
     }
 
     // Check if there are any digital items in this order
     const orderItemIds = (
-      await prisma.orderItem.findMany({ where: { orderId }, select: { id: true } })
+      await prisma.orderItem.findMany({
+        where: { orderId },
+        select: { id: true },
+      })
     ).map((i) => i.id);
 
     const downloads = await prisma.downloadRecord.findMany({
@@ -267,7 +299,9 @@ async function handleDigitalDelivery(
       // Users must access downloads through their dashboard for tracking
       const downloadInfo = await Promise.all(
         downloads.map(async (dl) => {
-          const asset = await prisma.digitalAsset.findUnique({ where: { id: dl.assetId } });
+          const asset = await prisma.digitalAsset.findUnique({
+            where: { id: dl.assetId },
+          });
           return {
             fileName: asset?.fileName || 'Unknown file',
             fileSize: asset?.fileSize || 0,
@@ -276,7 +310,7 @@ async function handleDigitalDelivery(
             maxDownloads: dl.maxDownloads,
             expiresAt: dl.expiresAt,
           };
-        })
+        }),
       );
 
       const sent = await sendDigitalProductDelivery({
@@ -296,12 +330,15 @@ async function handleDigitalDelivery(
 
       return sent;
     } else {
-      logger.warn('[DigitalDelivery] No download records found — email not sent', {
-        orderId,
-        orderNumber,
-        userId,
-        orderItemIds,
-      });
+      logger.warn(
+        '[DigitalDelivery] No download records found — email not sent',
+        {
+          orderId,
+          orderNumber,
+          userId,
+          orderItemIds,
+        },
+      );
 
       return false;
     }
@@ -333,7 +370,7 @@ function generateReference(): string {
 export async function initializePayment(
   userId: string,
   userEmail: string,
-  orderId: string
+  orderId: string,
 ): Promise<InitializePaymentResult> {
   // Find the order and verify ownership
   const order = await prisma.order.findUnique({
@@ -362,7 +399,7 @@ export async function initializePayment(
       order.total,
       order.payment.reference!,
       { orderId: order.id, orderNumber: order.orderNumber, userId },
-      callbackUrl
+      callbackUrl,
     );
 
     return {
@@ -386,7 +423,7 @@ export async function initializePayment(
     order.total,
     reference,
     { orderId: order.id, orderNumber: order.orderNumber, userId },
-    callbackUrl
+    callbackUrl,
   );
 
   // Create Payment record in DB
@@ -414,7 +451,7 @@ export async function initializePayment(
  */
 export async function verifyPayment(
   userId: string,
-  reference: string
+  reference: string,
 ): Promise<VerifyPaymentResult> {
   // Find the payment record
   const payment = await prisma.payment.findUnique({
@@ -484,7 +521,7 @@ export async function verifyPayment(
       payment.orderId,
       data.paid_at,
       data.channel || 'card',
-      data.customer?.email
+      data.customer?.email,
     );
 
     return {
@@ -532,7 +569,7 @@ export async function verifyPayment(
  * Called after HMAC signature verification in the controller.
  */
 export async function handleWebhook(
-  event: PaystackWebhookEvent
+  event: PaystackWebhookEvent,
 ): Promise<void> {
   const { data } = event;
   const reference = data.reference;
@@ -585,7 +622,7 @@ export async function handleWebhook(
       payment.orderId,
       data.paid_at,
       data.channel || 'card',
-      data.customer?.email
+      data.customer?.email,
     );
   } else if (event.event === 'charge.failed') {
     await prisma.payment.update({
