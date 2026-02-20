@@ -102,3 +102,25 @@ export async function signProductRecords<T extends { images?: unknown }>(
 ): Promise<T[]> {
   return Promise.all(products.map((p) => signProductRecord(p)));
 }
+
+/**
+ * Sign the `image` field on a single category object.
+ * Category images are stored as plain R2 keys (e.g. "categories/abc.jpg").
+ */
+export async function signCategoryRecord<T extends { image?: string | null }>(
+  category: T,
+): Promise<T> {
+  if (category.image) {
+    return { ...category, image: await signR2Key(category.image) };
+  }
+  return category;
+}
+
+/**
+ * Sign the `image` field on an array of category objects.
+ */
+export async function signCategoryRecords<T extends { image?: string | null }>(
+  categories: T[],
+): Promise<T[]> {
+  return Promise.all(categories.map((c) => signCategoryRecord(c)));
+}

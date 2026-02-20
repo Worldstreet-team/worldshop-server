@@ -1,6 +1,11 @@
 import prisma from '../configs/prismaConfig';
 import type { CategorySlugQueryInput } from '../validators/category.validator';
 import { paginatedResult } from '../utils/pagination';
+import {
+  signCategoryRecord,
+  signCategoryRecords,
+  signProductRecords,
+} from '../utils/signUrl';
 
 /**
  * getAllCategories — Flat list of active categories with their product count.
@@ -12,17 +17,22 @@ export async function getAllCategories() {
     orderBy: { sortOrder: 'asc' },
   });
 
-  return categories.map((cat) => ({
+  const mapped = categories.map((cat) => ({
     ...cat,
     productCount: cat._count.products,
     _count: undefined,
   }));
+
+  return signCategoryRecords(mapped);
 }
 
 /**
  * getCategoryBySlug — Single category + paginated products.
  */
-export async function getCategoryBySlug(slug: string, query: CategorySlugQueryInput) {
+export async function getCategoryBySlug(
+  slug: string,
+  query: CategorySlugQueryInput,
+) {
   const { page, limit, minPrice, maxPrice, brand, inStock, sortBy } = query;
 
   const category = await prisma.category.findUnique({ where: { slug } });
@@ -83,9 +93,12 @@ export async function getCategoryBySlug(slug: string, query: CategorySlugQueryIn
     prisma.product.count({ where }),
   ]);
 
+  const signedCategory = await signCategoryRecord(category);
+  const signedProducts = await signProductRecords(products);
+
   return {
-    category,
-    products: paginatedResult(products, total, page, limit),
+    category: signedCategory,
+    products: paginatedResult(signedProducts, total, page, limit),
   };
 }
 
@@ -93,7 +106,8 @@ export async function getCategoryBySlug(slug: string, query: CategorySlugQueryIn
  * getCategoryById — Single category by ID.
  */
 export async function getCategoryById(id: string) {
-  return prisma.category.findUnique({ where: { id } });
+  const cat = await prisma.category.findUnique({ where: { id } });
+  return cat ? signCategoryRecord(cat) : null;
 }
 
 /**
@@ -107,9 +121,11 @@ export async function getFeaturedCategories(limit: number = 4) {
     take: limit,
   });
 
-  return categories.map((cat) => ({
+  const mapped = categories.map((cat) => ({
     ...cat,
     productCount: cat._count.products,
     _count: undefined,
   }));
+
+  return signCategoryRecords(mapped);
 }
