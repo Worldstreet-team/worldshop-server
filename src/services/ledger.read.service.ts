@@ -173,7 +173,7 @@ export async function getCommissionReport(
   const configEntry = await prisma.platformConfig.findUnique({
     where: { key: 'commissionRate' },
   });
-  const commissionRate = configEntry ? parseFloat(configEntry.value) : 0.10;
+  const commissionRate = configEntry ? parseFloat(configEntry.value as string) : 0.10;
 
   // All vendor balances
   const vendorBalances = await prisma.vendorBalance.findMany();

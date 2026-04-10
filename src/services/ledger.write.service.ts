@@ -59,7 +59,7 @@ export async function settleOrder(orderId: string): Promise<SettleOrderResult> {
   const configEntry = await prisma.platformConfig.findUnique({
     where: { key: 'commissionRate' },
   });
-  const commissionRate = configEntry ? parseFloat(configEntry.value) : 0.10;
+  const commissionRate = configEntry ? parseFloat(configEntry.value as string) : 0.10;
 
   const grossSale = order.total;
   const commission = Math.round(grossSale * commissionRate * 100) / 100;

@@ -50,6 +50,7 @@ describe('vendor product management', () => {
       description: 'A digital guide to everything',
       basePrice: 5000,
       tags: ['ebook', 'guide'],
+      images: [],
     });
 
     expect(product.name).toBe('E-Book Guide');
@@ -68,12 +69,16 @@ describe('vendor product management', () => {
       name: 'My Product',
       description: 'First product',
       basePrice: 1000,
+      tags: [],
+      images: [],
     });
 
     const p2 = await vendorProductService.vendorCreateProduct(vendor.userId, {
       name: 'My Product',
       description: 'Second product with same name',
       basePrice: 2000,
+      tags: [],
+      images: [],
     });
 
     expect(p1.slug).toBe('my-product');
@@ -88,6 +93,8 @@ describe('vendor product management', () => {
       name: 'Template Pack',
       description: 'Various templates',
       basePrice: 10000,
+      tags: [],
+      images: [],
       variants: [
         { name: 'Basic', attributes: { tier: 'basic' }, price: 5000, stock: 0, isActive: true },
         { name: 'Pro', attributes: { tier: 'pro' }, price: 15000, stock: 0, isActive: true },
@@ -109,17 +116,23 @@ describe('vendor product management', () => {
       name: 'Vendor1 Product',
       description: 'From vendor 1',
       basePrice: 500,
+      tags: [],
+      images: [],
     });
 
     await vendorProductService.vendorCreateProduct(vendor2.userId, {
       name: 'Vendor2 Product',
       description: 'From vendor 2',
       basePrice: 600,
+      tags: [],
+      images: [],
     });
 
     const result = await vendorProductService.vendorListProducts(vendor1.userId, {
       page: 1,
       limit: 20,
+      status: 'all' as const,
+      sortBy: 'newest' as const,
     });
 
     expect(result.data).toHaveLength(1);
@@ -134,6 +147,8 @@ describe('vendor product management', () => {
       name: 'Solo Product',
       description: 'Just one',
       basePrice: 3000,
+      tags: [],
+      images: [],
     });
 
     const fetched = await vendorProductService.vendorGetProduct(vendor.userId, created.id);
@@ -149,6 +164,8 @@ describe('vendor product management', () => {
       name: 'Private Product',
       description: 'Belongs to vendor1',
       basePrice: 7000,
+      tags: [],
+      images: [],
     });
 
     await expect(
@@ -165,6 +182,8 @@ describe('vendor product management', () => {
       name: 'Old Name',
       description: 'Original description',
       basePrice: 4000,
+      tags: [],
+      images: [],
     });
 
     const updated = await vendorProductService.vendorUpdateProduct(vendor.userId, product.id, {
@@ -185,6 +204,8 @@ describe('vendor product management', () => {
       name: 'Protected Product',
       description: 'Cannot be updated by others',
       basePrice: 2000,
+      tags: [],
+      images: [],
     });
 
     await expect(
@@ -201,6 +222,8 @@ describe('vendor product management', () => {
       name: 'Doomed Product',
       description: 'Will be deactivated',
       basePrice: 1500,
+      tags: [],
+      images: [],
     });
 
     await vendorProductService.vendorDeleteProduct(vendor.userId, product.id);
@@ -217,6 +240,8 @@ describe('vendor product management', () => {
       name: 'Safe Product',
       description: 'Cannot be deleted by others',
       basePrice: 3000,
+      tags: [],
+      images: [],
     });
 
     await expect(
@@ -233,6 +258,8 @@ describe('vendor product management', () => {
       name: 'Toggle Product',
       description: 'Will be toggled',
       basePrice: 2500,
+      tags: [],
+      images: [],
     });
 
     expect(product.isActive).toBe(true);

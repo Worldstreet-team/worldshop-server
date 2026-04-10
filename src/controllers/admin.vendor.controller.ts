@@ -28,7 +28,7 @@ export const listVendors = catchAsync(async (req: Request, res: Response, _next:
  * GET /api/v1/admin/vendors/:id
  */
 export const getVendor = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const result = await adminVendorService.getVendorDetail(req.params.id);
+  const result = await adminVendorService.getVendorDetail(req.params.id as string);
 
   res.status(200).json({ success: true, data: result });
 });
@@ -40,7 +40,7 @@ export const getVendor = catchAsync(async (req: Request, res: Response, _next: N
  */
 export const updateVendorStatus = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const { status } = adminVendorStatusSchema.parse(req.body);
-  const result = await adminVendorService.updateVendorStatus(req.params.id, status);
+  const result = await adminVendorService.updateVendorStatus(req.params.id as string, status);
 
   res.status(200).json({
     success: true,
@@ -56,7 +56,7 @@ export const updateVendorStatus = catchAsync(async (req: Request, res: Response,
  */
 export const getVendorProducts = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   // First get the vendor to find their userId
-  const vendor = await adminVendorService.getVendorDetail(req.params.id);
+  const vendor = await adminVendorService.getVendorDetail(req.params.id as string);
   const query = adminVendorProductsSchema.parse(req.query);
   const result = await adminVendorService.getVendorProducts(vendor.userId, query);
   result.data = await signProductRecords(result.data as any) as any;

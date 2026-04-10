@@ -32,7 +32,7 @@ export const getProducts = catchAsync(async (req: Request, res: Response, _next:
  */
 export const getProduct = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
-  const product = await vendorProductService.vendorGetProduct(vendorId, req.params.id);
+  const product = await vendorProductService.vendorGetProduct(vendorId, req.params.id as string);
 
   res.status(200).json({
     success: true,
@@ -63,7 +63,7 @@ export const createProduct = catchAsync(async (req: Request, res: Response, _nex
 export const updateProduct = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
   const data = vendorUpdateProductSchema.parse(req.body);
-  const product = await vendorProductService.vendorUpdateProduct(vendorId, req.params.id, data);
+  const product = await vendorProductService.vendorUpdateProduct(vendorId, req.params.id as string, data);
 
   res.status(200).json({
     success: true,
@@ -78,7 +78,7 @@ export const updateProduct = catchAsync(async (req: Request, res: Response, _nex
  */
 export const deleteProduct = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
-  await vendorProductService.vendorDeleteProduct(vendorId, req.params.id);
+  await vendorProductService.vendorDeleteProduct(vendorId, req.params.id as string);
 
   res.status(200).json({
     success: true,
@@ -93,7 +93,7 @@ export const deleteProduct = catchAsync(async (req: Request, res: Response, _nex
 export const toggleProduct = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
   const { isActive } = vendorToggleProductSchema.parse(req.body);
-  const product = await vendorProductService.vendorToggleProduct(vendorId, req.params.id, isActive);
+  const product = await vendorProductService.vendorToggleProduct(vendorId, req.params.id as string, isActive);
 
   res.status(200).json({
     success: true,

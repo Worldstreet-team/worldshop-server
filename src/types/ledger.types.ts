@@ -10,7 +10,8 @@
 
 // ─── Prisma enum re-export ──────────────────────────────────────
 
-export { LedgerEntryType } from '../../generated/prisma';
+import { LedgerEntryType } from '../../generated/prisma';
+export { LedgerEntryType };
 
 // ─── SettleOrder output ─────────────────────────────────────────
 

@@ -27,7 +27,7 @@ export const getOrders = catchAsync(async (req: Request, res: Response, _next: N
  */
 export const getOrder = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
-  const order = await vendorOrderService.getVendorOrder(req.params.id, vendorId);
+  const order = await vendorOrderService.getVendorOrder(req.params.id as string, vendorId);
 
   res.status(200).json({
     success: true,
@@ -42,7 +42,7 @@ export const getOrder = catchAsync(async (req: Request, res: Response, _next: Ne
 export const updateStatus = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
   const input = updateVendorOrderStatusSchema.parse(req.body);
-  const order = await vendorOrderService.updateVendorOrderStatus(req.params.id, vendorId, input);
+  const order = await vendorOrderService.updateVendorOrderStatus(req.params.id as string, vendorId, input);
 
   res.status(200).json({
     success: true,

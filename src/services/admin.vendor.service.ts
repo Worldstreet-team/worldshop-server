@@ -219,7 +219,7 @@ export async function updateCommissionRate(newRate: number) {
     create: { key: 'commissionRate', value: newRate.toString() },
   });
 
-  return { key: config.key, value: parseFloat(config.value) };
+  return { key: config.key, value: parseFloat(config.value as string) };
 }
 
 // ─── Get commission rate ────────────────────────────────────────
@@ -231,6 +231,6 @@ export async function getCommissionRate() {
 
   return {
     key: 'commissionRate',
-    value: config ? parseFloat(config.value) : 0.10,
+    value: config ? parseFloat(config.value as string) : 0.10,
   };
 }

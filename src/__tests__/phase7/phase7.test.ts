@@ -231,7 +231,7 @@ describe('Phase 7: Vendor Reviews & Admin Vendor Management', () => {
       expect(ourVendors.length).toBe(2);
 
       const v1 = ourVendors.find((v: any) => v.userId.includes('list-v1'));
-      expect(v1.productCount).toBe(2);
+      expect(v1!.productCount).toBe(2);
     });
 
     it('filters vendors by status', async () => {
