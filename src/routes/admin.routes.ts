@@ -5,6 +5,7 @@ import * as adminProductController from '../controllers/admin.product.controller
 import * as adminCategoryController from '../controllers/admin.category.controller';
 import * as adminOrderController from '../controllers/admin.order.controller';
 import * as adminInventoryController from '../controllers/admin.inventory.controller';
+import * as adminVendorController from '../controllers/admin.vendor.controller';
 import * as uploadController from '../controllers/upload.controller';
 import { uploadProductImages, uploadCategoryImage, uploadDigitalFiles, handleMulterError } from '../middlewares/upload.middleware';
 
@@ -55,5 +56,18 @@ router.delete('/upload/images', uploadController.deleteImages);
 
 // ─── Digital File Uploads ───────────────────────────────────────
 router.post('/upload/digital-files', uploadDigitalFiles, handleMulterError, uploadController.uploadDigitalFiles);
+
+// ─── Vendor Management ──────────────────────────────────────────
+router.get('/vendors', adminVendorController.listVendors);
+router.get('/vendors/:id', adminVendorController.getVendor);
+router.patch('/vendors/:id/status', adminVendorController.updateVendorStatus);
+router.get('/vendors/:id/products', adminVendorController.getVendorProducts);
+
+// ─── Reports ────────────────────────────────────────────────────
+router.get('/reports/commission', adminVendorController.getCommissionReport);
+
+// ─── Settings ───────────────────────────────────────────────────
+router.get('/settings/commission', adminVendorController.getCommissionRate);
+router.patch('/settings/commission', adminVendorController.updateCommissionRate);
 
 export default router;

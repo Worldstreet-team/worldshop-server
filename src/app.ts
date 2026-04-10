@@ -16,6 +16,8 @@ import reviewRoutes from './routes/review.routes';
 import wishlistRoutes from './routes/wishlist.routes';
 import adminRoutes from './routes/admin.routes';
 import downloadRoutes from './routes/download.routes';
+import vendorRoutes from './routes/vendor.routes';
+import storeRoutes from './routes/store.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
@@ -91,6 +93,8 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/products/:productId/reviews', reviewRoutes);
 app.use('/api/v1/wishlist', wishlistRoutes);
 app.use('/api/v1/downloads', downloadRoutes);
+app.use('/api/v1/vendor', vendorRoutes);
+app.use('/api/v1/store', storeRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 app.get('/debug-sentry', (req, res) => {

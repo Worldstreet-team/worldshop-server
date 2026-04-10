@@ -97,7 +97,6 @@ export async function adminListOrders(
         statusHistory: {
           orderBy: { createdAt: 'desc' },
         },
-        payment: true,
       },
       orderBy,
       skip,
@@ -133,7 +132,6 @@ export async function adminGetOrder(orderId: string): Promise<OrderWithItems> {
       statusHistory: {
         orderBy: { createdAt: 'desc' },
       },
-      payment: true,
     },
   });
 
@@ -306,7 +304,6 @@ export async function updateOrderStatus(
         include: {
           items: { include: { product: true, variant: true } },
           statusHistory: { orderBy: { createdAt: 'desc' } },
-          payment: true,
         },
       });
 
@@ -347,7 +344,6 @@ export async function updateOrderStatus(
     include: {
       items: { include: { product: true, variant: true } },
       statusHistory: { orderBy: { createdAt: 'desc' } },
-      payment: true,
     },
   });
 
@@ -455,6 +451,8 @@ async function formatAdminOrderResponse(order: {
   id: string;
   orderNumber: string;
   userId: string;
+  vendorId: string | null;
+  checkoutSessionId: string | null;
   status: OrderStatus;
   shippingAddress: unknown;
   billingAddress: unknown;
@@ -492,14 +490,6 @@ async function formatAdminOrderResponse(order: {
     note: string | null;
     createdAt: Date;
   }>;
-  payment?: {
-    id: string;
-    status: string;
-    provider: string;
-    reference: string | null;
-    channel: string | null;
-    paidAt: Date | null;
-  } | null;
 }): Promise<OrderWithItems> {
   // Sign product images in order items
   const signedItems = await Promise.all(
@@ -539,6 +529,8 @@ async function formatAdminOrderResponse(order: {
     id: order.id,
     orderNumber: order.orderNumber,
     userId: order.userId,
+    vendorId: order.vendorId,
+    checkoutSessionId: order.checkoutSessionId,
     status: order.status,
     shippingAddress: order.shippingAddress as any,
     billingAddress: order.billingAddress as any,
@@ -556,20 +548,10 @@ async function formatAdminOrderResponse(order: {
       note: h.note,
       createdAt: h.createdAt,
     })),
-    payment: order.payment
-      ? {
-          id: order.payment.id,
-          status: order.payment.status,
-          provider: order.payment.provider,
-          reference: order.payment.reference || '',
-          channel: order.payment.channel,
-          paidAt: order.payment.paidAt,
-        }
-      : undefined,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     paidAt: order.paidAt,
     shippedAt: order.shippedAt,
     deliveredAt: order.deliveredAt,
-  } as OrderWithItems & { payment?: unknown };
+  };
 }

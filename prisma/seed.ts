@@ -482,6 +482,14 @@ async function main() {
 
   console.log(`  ✓ Created ${products.length} products with variants\n`);
 
+  // ── Platform Config ──────────────────────────────────────────
+  await prisma.platformConfig.upsert({
+    where: { key: 'commissionRate' },
+    update: {},
+    create: { key: 'commissionRate', value: '0.10' },
+  });
+  console.log('   PlatformConfig: commissionRate = 0.10');
+
   // ── Summary ───────────────────────────────────────────────────
   const categoryCount = await prisma.category.count();
   const productCount = await prisma.product.count();

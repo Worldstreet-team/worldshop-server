@@ -395,10 +395,12 @@ export async function cancelOrder(
  * Format order for API response.
  * Signs R2 image keys in order items.
  */
-async function formatOrderResponse(order: {
+export async function formatOrderResponse(order: {
   id: string;
   orderNumber: string;
   userId: string;
+  vendorId: string | null;
+  checkoutSessionId: string | null;
   status: OrderStatus;
   shippingAddress: unknown;
   billingAddress: unknown;
@@ -483,6 +485,8 @@ async function formatOrderResponse(order: {
     id: order.id,
     orderNumber: order.orderNumber,
     userId: order.userId,
+    vendorId: order.vendorId,
+    checkoutSessionId: order.checkoutSessionId,
     status: order.status,
     shippingAddress: order.shippingAddress as ShippingAddress,
     billingAddress: order.billingAddress as ShippingAddress | null,

@@ -6,6 +6,8 @@ export interface JwtPayload {
   firstName: string;
   lastName: string;
   role: 'CUSTOMER' | 'ADMIN';
+  isVendor: boolean;
+  vendorStatus: 'ACTIVE' | 'SUSPENDED' | 'BANNED' | null;
 }
 
 declare global {

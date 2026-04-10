@@ -25,9 +25,11 @@ export interface OrderWithItems {
   id: string;
   orderNumber: string;
   userId: string;
+  vendorId?: string | null;
+  checkoutSessionId?: string | null;
   status: OrderStatus;
   items: OrderItemResponse[];
-  shippingAddress: ShippingAddress;
+  shippingAddress?: ShippingAddress | null;
   billingAddress?: ShippingAddress | null;
   subtotal: number;
   shipping: number;
@@ -97,6 +99,73 @@ export interface CheckoutValidationResult {
       available: number;
       price: number;
     }>;
+    subtotal: number;
+    shipping: number;
+    total: number;
+  };
+}
+
+// ─── Checkout session types ─────────────────────────────────────
+export interface CheckoutIssue {
+  productId: string;
+  productName: string;
+  reason: 'OUT_OF_STOCK' | 'INSUFFICIENT_STOCK' | 'INACTIVE' | 'PRICE_CHANGED';
+  detail: string;
+}
+
+export interface VendorGroup {
+  vendorId: string | null;
+  storeName: string;
+  items: Array<{
+    productId: string;
+    variantId: string | null;
+    productName: string;
+    productImage: string | null;
+    variantName: string | null;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    type: string;
+  }>;
+  subtotal: number;
+  shipping: number;
+  total: number;
+}
+
+export interface CheckoutSessionPreview {
+  snapshotToken: string;
+  vendorGroups: VendorGroup[];
+  issues: CheckoutIssue[];
+  requiresShipping: boolean;
+  summary: {
+    orderCount: number;
+    subtotal: number;
+    shipping: number;
+    total: number;
+  };
+}
+
+export interface ConfirmCheckoutSessionInput {
+  snapshotToken: string;
+  shippingAddress?: ShippingAddress;
+  billingAddress?: ShippingAddress;
+  notes?: string;
+}
+
+export interface CheckoutSessionResult {
+  checkoutSessionId: string;
+  orders: Array<{
+    id: string;
+    orderNumber: string;
+    vendorId: string | null;
+    storeName: string;
+    subtotal: number;
+    shipping: number;
+    total: number;
+    itemCount: number;
+  }>;
+  summary: {
+    orderCount: number;
     subtotal: number;
     shipping: number;
     total: number;

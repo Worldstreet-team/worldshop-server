@@ -9,10 +9,24 @@ import type { Product } from '../../generated/prisma';
  * Supports: search, category, price range, brand, rating, stock, featured, sorting.
  */
 export async function listProducts(query: ProductQueryInput): Promise<PaginatedResult<Product>> {
-  const { page, limit, search, categoryId, categorySlug, minPrice, maxPrice, brand, rating, inStock, isFeatured, sortBy } = query;
+  const { page, limit, search, categoryId, categorySlug, minPrice, maxPrice, brand, rating, inStock, isFeatured, sortBy, vendorId } = query;
 
   // ── Build filter ──────────────────────────────────────────────
   const where: Record<string, unknown> = { isActive: true };
+
+  // Vendor products must be approved to appear publicly
+  // Platform products (vendorId = null) have no approvalStatus gate
+  where.OR = [
+    { vendorId: null },
+    { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+  ];
+
+  // Filter by specific vendor
+  if (vendorId) {
+    where.vendorId = vendorId;
+    where.approvalStatus = 'APPROVED';
+    delete where.OR;
+  }
 
   // Category by ID or slug
   if (categoryId) {
@@ -121,7 +135,14 @@ export async function getProductById(id: string) {
  */
 export async function getFeaturedProducts(limit: number = 8) {
   return prisma.product.findMany({
-    where: { isActive: true, isFeatured: true },
+    where: {
+      isActive: true,
+      isFeatured: true,
+      OR: [
+        { vendorId: null },
+        { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+      ],
+    },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -144,6 +165,10 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
       isActive: true,
       categoryId: product.categoryId,
       id: { not: productId },
+      OR: [
+        { vendorId: null },
+        { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+      ],
     },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
@@ -156,6 +181,10 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
       where: {
         isActive: true,
         id: { notIn: [productId, ...related.map((r) => r.id)] },
+        OR: [
+          { vendorId: null },
+          { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+        ],
       },
       include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy: { avgRating: 'desc' },
@@ -179,6 +208,14 @@ export async function searchProducts(q: string, limit: number = 10) {
         { description: { contains: q, mode: 'insensitive' } },
         { brand: { contains: q, mode: 'insensitive' } },
         { tags: { hasSome: [q.toLowerCase()] } },
+      ],
+      AND: [
+        {
+          OR: [
+            { vendorId: null },
+            { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+          ],
+        },
       ],
     },
     include: { category: true },
@@ -219,4 +256,28 @@ export async function getAllBrands() {
   });
 
   return products.map((p) => p.brand).filter(Boolean) as string[];
+}
+
+/**
+ * enrichWithVendorInfo — Attaches vendor storeName & storeSlug to products that have a vendorId.
+ * Batch-fetches vendor profiles to avoid N+1 queries.
+ */
+export async function enrichWithVendorInfo<T extends { vendorId?: string | null }>(
+  products: T[],
+): Promise<(T & { vendor?: { storeName: string; storeSlug: string } })[]> {
+  const vendorIds = [...new Set(products.map((p) => p.vendorId).filter((id): id is string => !!id))];
+
+  if (vendorIds.length === 0) return products;
+
+  const vendors = await prisma.userProfile.findMany({
+    where: { userId: { in: vendorIds } },
+    select: { userId: true, storeName: true, storeSlug: true },
+  });
+
+  const vendorMap = new Map(vendors.map((v) => [v.userId, { storeName: v.storeName!, storeSlug: v.storeSlug! }]));
+
+  return products.map((p) => ({
+    ...p,
+    vendor: p.vendorId ? vendorMap.get(p.vendorId) ?? undefined : undefined,
+  }));
 }

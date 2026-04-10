@@ -4,6 +4,7 @@ import createError from 'http-errors';
 import * as productService from '../services/product.service';
 import { productQuerySchema, featuredQuerySchema, relatedQuerySchema, searchQuerySchema } from '../validators/product.validator';
 import { signProductRecord, signProductRecords } from '../utils/signUrl';
+import { enrichWithVendorInfo } from '../services/product.service';
 
 /**
  * GET /api/v1/products
@@ -12,7 +13,7 @@ import { signProductRecord, signProductRecords } from '../utils/signUrl';
 export const getProducts = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const query = productQuerySchema.parse(req.query);
   const result = await productService.listProducts(query);
-  result.data = await signProductRecords(result.data);
+  result.data = await enrichWithVendorInfo(await signProductRecords(result.data));
 
   res.status(200).json({
     success: true,
@@ -30,7 +31,7 @@ export const getFeatured = catchAsync(async (req: Request, res: Response, _next:
 
   res.status(200).json({
     success: true,
-    data: await signProductRecords(products),
+    data: await enrichWithVendorInfo(await signProductRecords(products)),
   });
 });
 
@@ -86,9 +87,10 @@ export const getProductBySlug = catchAsync(async (req: Request, res: Response, n
     return next(createError(404, 'Product not found'));
   }
 
+  const [enriched] = await enrichWithVendorInfo([await signProductRecord(product)]);
   res.status(200).json({
     success: true,
-    data: await signProductRecord(product),
+    data: enriched,
   });
 });
 
@@ -104,9 +106,10 @@ export const getProductById = catchAsync(async (req: Request, res: Response, nex
     return next(createError(404, 'Product not found'));
   }
 
+  const [enriched] = await enrichWithVendorInfo([await signProductRecord(product)]);
   res.status(200).json({
     success: true,
-    data: await signProductRecord(product),
+    data: enriched,
   });
 });
 
@@ -121,6 +124,6 @@ export const getRelatedProducts = catchAsync(async (req: Request, res: Response,
 
   res.status(200).json({
     success: true,
-    data: await signProductRecords(products),
+    data: await enrichWithVendorInfo(await signProductRecords(products)),
   });
 });

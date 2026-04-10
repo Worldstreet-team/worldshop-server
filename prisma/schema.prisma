@@ -41,19 +41,34 @@ enum Role {
   ADMIN
 }
 
+enum VendorStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
 model UserProfile {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String    @unique // maps to Clerk user id
-  email       String    @unique
-  firstName   String
-  lastName    String
-  phone       String?
-  avatar      String?
-  dateOfBirth DateTime?
-  gender      Gender?
-  role        Role      @default(CUSTOMER)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String        @unique // maps to Clerk user id
+  email            String        @unique
+  firstName        String
+  lastName         String
+  phone            String?
+  avatar           String?
+  dateOfBirth      DateTime?
+  gender           Gender?
+  role             Role          @default(CUSTOMER)
+
+  // Vendor fields
+  isVendor         Boolean       @default(false)
+  vendorStatus     VendorStatus?
+  storeName        String?       @unique
+  storeSlug        String?       @unique
+  storeDescription String?
+  vendorSince      DateTime?
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 // ============================================
@@ -130,6 +145,10 @@ model Product {
   categoryId    String?          @db.ObjectId
   category      Category?        @relation(fields: [categoryId], references: [id])
 
+  // Vendor ownership (null = platform-owned, admin-managed)
+  vendorId      String?
+  approvalStatus String          @default("APPROVED") // PENDING, APPROVED, REJECTED
+
   brand         String?
   tags          String[]
   images        Json       @default("[]") // Array of { key, alt, isPrimary, sortOrder }
@@ -157,6 +176,7 @@ model Product {
 
   @@index([categoryId])
   @@index([isActive])
+  @@index([vendorId])
 }
 
 model ProductVariant {
@@ -225,17 +245,18 @@ enum OrderStatus {
 }
 
 model Order {
-  id              String               @id @default(auto()) @map("_id") @db.ObjectId
-  orderNumber     String               @unique
-  userId          String               // maps to external auth user id
-  status          OrderStatus          @default(CREATED)
+  id                String               @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber       String               @unique
+  userId            String               // maps to external auth user id
+  vendorId          String?              // vendor user id (null = platform-owned)
+  checkoutSessionId String?              // groups orders from a single checkout
+  status            OrderStatus          @default(CREATED)
 
   items           OrderItem[]
   statusHistory   OrderStatusHistory[]
-  payment         Payment?
 
-  // Shipping address (embedded)
-  shippingAddress Json                 // { firstName, lastName, address, city, state, country, phone, postalCode }
+  // Shipping address (optional for digital orders)
+  shippingAddress Json?                // { firstName, lastName, address, city, state, country, phone, postalCode }
   billingAddress  Json?                // Optional separate billing address
 
   // Totals in NGN
@@ -255,6 +276,8 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([vendorId])
+  @@index([checkoutSessionId])
 }
 
 model OrderItem {
@@ -293,8 +316,8 @@ model OrderStatusHistory {
 
 // ============================================
 // PAYMENTS
-// Paystack payment records linked to orders.
-// Amounts stored in NGN (sent to Paystack in kobo).
+// Payment records linked to checkout sessions.
+// Amounts stored in NGN (₦).
 // ============================================
 
 enum PaymentStatus {
@@ -305,22 +328,20 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id          String        @id @default(auto()) @map("_id") @db.ObjectId
-  orderId     String        @unique @db.ObjectId
-  order       Order         @relation(fields: [orderId], references: [id])
-  userId      String        // maps to external auth user id
-  amount      Float                              // Amount in NGN
-  currency    String        @default("NGN")
-  status      PaymentStatus @default(PENDING)
-  provider    String        @default("paystack")
-  reference   String?       @unique              // Paystack transaction reference
-  paystackId  String?                             // Paystack transaction ID
-  channel     String?                             // card, bank, ussd, qr, etc.
-  metadata    Json?
+  id                String        @id @default(auto()) @map("_id") @db.ObjectId
+  checkoutSessionId String?       @unique            // links to the checkout session
+  userId            String                           // maps to external auth user id
+  amount            Float                            // Amount in NGN
+  currency          String        @default("NGN")
+  status            PaymentStatus @default(PENDING)
+  provider          String        @default("mock")
+  transactionRef    String?       @unique            // Unique transaction reference
+  providerData      Json?                            // Provider-specific data
+  metadata          Json?
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  paidAt      DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  paidAt            DateTime?
 
   @@index([userId])
 }
@@ -420,4 +441,58 @@ model DownloadRecord {
   @@unique([orderItemId, assetId])
   @@index([userId])
   @@index([orderItemId])
+}
+
+// ============================================
+// PLATFORM CONFIG
+// Key-value settings (e.g. commissionRate).
+// ============================================
+
+model PlatformConfig {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  key   String @unique
+  value Json
+}
+
+// ============================================
+// LEDGER ENTRY
+// Immutable financial audit trail per vendor.
+// Types: SALE (vendor net), COMMISSION (platform fee), WITHDRAWAL.
+// ============================================
+
+enum LedgerEntryType {
+  SALE
+  COMMISSION
+  WITHDRAWAL
+}
+
+model LedgerEntry {
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  orderId       String          @db.ObjectId
+  vendorId      String          // External auth user id
+  type          LedgerEntryType
+  amount        Float           // Positive = credit, negative = debit
+  currency      String          @default("NGN")
+  balanceBefore Float
+  balanceAfter  Float
+  createdAt     DateTime        @default(now())
+
+  @@index([vendorId])
+  @@index([orderId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ============================================
+// VENDOR BALANCE
+// Running balance per vendor.
+// ============================================
+
+model VendorBalance {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  vendorId        String   @unique // External auth user id
+  availableBalance Float   @default(0)
+  totalEarned     Float    @default(0)
+  totalCommission Float    @default(0)
+  updatedAt       DateTime @updatedAt
 }

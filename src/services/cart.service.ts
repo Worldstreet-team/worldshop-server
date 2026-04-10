@@ -441,6 +441,7 @@ async function formatCartResponse(cart: {
       salePrice: number | null;
       stock: number;
       images: unknown;
+      vendorId: string | null;
     };
     variant: {
       id: string;
@@ -450,6 +451,33 @@ async function formatCartResponse(cart: {
     } | null;
   }>;
 }): Promise<CartWithTotals> {
+  // Batch-lookup vendor profiles for all unique vendorIds in the cart
+  const vendorIds = [
+    ...new Set(
+      cart.items
+        .map((item) => item.product.vendorId)
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const vendorMap = new Map<
+    string,
+    { storeName: string; storeSlug: string }
+  >();
+  if (vendorIds.length > 0) {
+    const vendors = await prisma.userProfile.findMany({
+      where: { userId: { in: vendorIds }, isVendor: true },
+      select: { userId: true, storeName: true, storeSlug: true },
+    });
+    for (const v of vendors) {
+      if (v.storeName && v.storeSlug) {
+        vendorMap.set(v.userId, {
+          storeName: v.storeName,
+          storeSlug: v.storeSlug,
+        });
+      }
+    }
+  }
+
   const items: CartItemWithProduct[] = await Promise.all(
     cart.items.map(async (item) => {
       // Determine the price (variant price > sale price > base price)
@@ -494,6 +522,10 @@ async function formatCartResponse(cart: {
             alt?: string;
             isPrimary?: boolean;
           }>,
+          vendorId: item.product.vendorId,
+          vendor: item.product.vendorId
+            ? vendorMap.get(item.product.vendorId) ?? null
+            : null,
         },
         variant: item.variant
           ? {

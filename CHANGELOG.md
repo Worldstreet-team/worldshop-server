@@ -4,6 +4,189 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-04-10
+
+### Added — Phase 7: Vendor Reviews & Admin Vendor Management
+
+#### Vendor Reviews
+- `src/services/vendor.review.service.ts` — `getVendorReviews(vendorId, query)`: returns paginated reviews across all vendor's products with product name enrichment, rating filter, sort options
+- `src/controllers/vendor.review.controller.ts` — `GET /api/v1/vendor/reviews` handler
+- `vendor.routes.ts` — Added `/reviews` route (read-only, behind requireVendor)
+
+#### Admin Vendor Management
+- `src/services/admin.vendor.service.ts` — `listVendors(query)`, `getVendorDetail(id)`, `updateVendorStatus(id, status)`, `getVendorProducts(userId, query)`, `updateCommissionRate(rate)`, `getCommissionRate()`
+- `src/controllers/admin.vendor.controller.ts` — Handlers for all admin vendor endpoints
+- `src/validators/admin.vendor.validator.ts` — Zod schemas: `adminVendorListSchema`, `adminVendorStatusSchema`, `adminVendorProductsSchema`, `adminCommissionRateSchema`
+
+#### Admin Routes
+- `GET /api/v1/admin/vendors` — Paginated vendor list with status, product count, total earnings
+- `GET /api/v1/admin/vendors/:id` — Full vendor detail with stats and recent orders
+- `PATCH /api/v1/admin/vendors/:id/status` — Set vendor status (ACTIVE/SUSPENDED/BANNED), fully reversible
+- `GET /api/v1/admin/vendors/:id/products` — Vendor's products for admin review
+- `GET /api/v1/admin/reports/commission` — Per-vendor commission breakdown + platform totals
+- `GET /api/v1/admin/settings/commission` — Current commission rate
+- `PATCH /api/v1/admin/settings/commission` — Update commission rate (affects future orders only)
+
+#### Tests
+- `src/__tests__/phase7/phase7.test.ts` — 18 integration tests covering vendor reviews (paginated, filtered, empty), admin vendor list (search, status filter), admin vendor detail (stats, 404), vendor status management (suspend, ban, reactivate, same-status rejection), admin vendor products, commission report with settlement, commission settings (update, validation, default)
+
+## [0.16.0] - 2026-04-10
+
+### Added — Phase 6: Platform Ledger & Vendor Earnings
+
+#### Schema (already existed)
+- `LedgerEntry` model — orderId, vendorId, type (SALE/COMMISSION/WITHDRAWAL), amount, currency, balanceBefore, balanceAfter
+- `VendorBalance` model — vendorId (unique), availableBalance, totalEarned, totalCommission
+- `PlatformConfig` model — key-value pairs for platform settings
+
+#### Seed
+- `prisma/seed.ts` — Seeds `PlatformConfig` with `commissionRate = "0.10"` via upsert
+
+#### Ledger Write Service (CQRS write side)
+- `src/services/ledger.write.service.ts` — `settleOrder(orderId)`: reads order.total + vendorId from DB (caller can't pass wrong amounts), creates SALE + COMMISSION entries atomically in a transaction, upserts VendorBalance. Idempotent via `wasAlreadySettled` flag. Reads commission rate from PlatformConfig (not hardcoded). Rejects non-PAID and platform-owned orders.
+
+#### Ledger Read Service (CQRS read side)
+- `src/services/ledger.read.service.ts` — `getVendorBalance(vendorId)`, `getVendorLedger(vendorId, query)` with pagination/filtering by type/date/sort, `getVendorAnalytics(input)` with summary + earningsOverTime buckets, `getCommissionReport(input)` with platform totals + per-vendor breakdown sorted by totalSales desc
+
+#### Ledger Types
+- `src/types/ledger.types.ts` — Updated to align with plan's Order-Aware Design C: `SettleOrderResult`, `VendorBalanceSummary`, `VendorAnalyticsInput/Result`, `EarningsBucket`, `CommissionReportInput/Result`, `VendorCommissionBreakdown`, `LedgerEntryResponse`
+
+#### Payment Webhook Integration
+- `src/services/payment.service.ts` — After marking orders PAID in webhook confirm handler, calls `settleOrder()` for each vendor order (non-blocking, idempotent, with error logging)
+
+#### Vendor Analytics Controller
+- `src/controllers/vendor.analytics.controller.ts` — `getSummary`, `getEarnings`, `getBalance` handlers
+
+#### Routes
+- `src/routes/vendor.routes.ts` — Added: `GET /analytics/summary`, `GET /analytics/earnings`, `GET /balance` (all behind `requireAuth + requireVendor`)
+
+#### Tests (11 new, 70 total)
+- `src/__tests__/ledger/ledger.test.ts` — 11 tests: settleOrder (creates entries + updates balance, idempotent duplicate handling, reads commission rate from config, rejects non-PAID orders, rejects platform-owned orders, accumulates balance across multiple orders), getVendorBalance (zero balance for new vendor), getVendorLedger (paginated entries, filter by type), getVendorAnalytics (summary with earnings), getCommissionReport (multi-vendor platform report)
+
+## [0.15.0] - 2026-04-10
+
+### Added — Phase 5: Vendor Order Fulfillment
+
+#### Vendor Order Service
+- `src/services/vendor.order.service.ts` — `getVendorOrders(vendorId, query)` with pagination, status filtering, search by order number; `getVendorOrder(orderId, vendorId)` with 403 ownership check; `updateVendorOrderStatus(orderId, vendorId, input)` with restricted transitions: PAID → PROCESSING → DELIVERED only. Uses `VENDOR_TRANSITIONS` map. Sets `deliveredAt` timestamp on DELIVERED. Creates `OrderStatusHistory` entries.
+
+#### Vendor Order Validator
+- `src/validators/vendor.order.validator.ts` — `vendorOrdersQuerySchema` (page, limit, status, search, sortBy), `updateVendorOrderStatusSchema` (status limited to PROCESSING | DELIVERED, optional note)
+
+#### Vendor Order Controller
+- `src/controllers/vendor.order.controller.ts` — `getOrders`, `getOrder`, `updateStatus` handlers using `req.user.id` as vendorId
+
+#### Routes
+- `src/routes/vendor.routes.ts` — Added: `GET /orders`, `GET /orders/:id`, `PATCH /orders/:id/status` (all behind `requireAuth + requireVendor`)
+
+#### Tests (12 new, 59 total)
+- `src/__tests__/vendor/vendor-orders.test.ts` — 12 tests: vendor order listing (scoped, filtered, paginated), order detail (ownership, 403 for other vendor, 404), status transitions (PAID→PROCESSING, PROCESSING→DELIVERED, rejected invalid transitions, cross-vendor rejection, terminal state rejection, full lifecycle)
+
+## [0.14.0] - 2026-04-10
+
+### Added — Phase 4: Multi-Vendor Cart & Order Splitting + Mock Payment
+
+#### Schema Changes
+- `prisma/schema.prisma` — Order model: added `vendorId String?` (indexed), `checkoutSessionId String?` (indexed), `shippingAddress Json?` (now optional). Payment model: added `checkoutSessionId String? @unique`, renamed `reference` → `transactionRef`, removed `paystackId`/`channel`, added `providerData Json?`, changed provider default to `"mock"`, removed orderId/order relation
+
+#### Payment Service (complete rewrite)
+- `src/services/payment.service.ts` — 594 lines. Mock payment implementation: `sendReceiptForOrder()`, `handleDigitalDelivery()`, `generateTransactionRef()` (WS-PAY-xxx), `mockPaymentService` implementing `PaymentServiceInterface` with `initializePayment()` (returns mock redirect URL), `verifyPayment()` (returns status + linked orders), `handleWebhook()` (confirm: atomic PAID on payment+orders+receipts; decline: atomic FAILED+stock restore). Provider-agnostic exports.
+
+#### Checkout Session Service (new)
+- `src/services/checkout.service.ts` — 489 lines. `calculateShipping()` (₦2,500 flat, free ≥₦50,000), `isDigitalOnlyCart()`, `validateCart()`, `computeSnapshotToken()` (SHA-256 hash of cart state), `groupItemsByVendor()` (batch vendor profile lookup, per-group shipping), `previewCheckoutSession()` → vendor-grouped preview with issues, `confirmCheckoutSession()` → atomic N-order creation with stock decrement, 409 on token mismatch
+
+#### Payment Types (rewrite)
+- `src/types/payment.types.ts` — Removed all Paystack types. Added: `PaymentProviderType`, `PaymentAction`, `PaymentResponse`, `InitPaymentParams`, `InitPaymentResult`, `VerifyPaymentResult`, `WebhookResult`, `PaymentServiceInterface`
+
+#### Order Types (updated)
+- `src/types/order.types.ts` — `OrderWithItems` gained `vendorId?`, `checkoutSessionId?`, optional `shippingAddress`. Added: `CheckoutIssue`, `VendorGroup`, `CheckoutSessionPreview`, `ConfirmCheckoutSessionInput`, `CheckoutSessionResult`
+
+#### Controllers & Routes
+- `src/controllers/checkout.controller.ts` — `previewCheckoutSession`, `confirmCheckoutSession` (409 handling), `initializePayment`
+- `src/controllers/payment.controller.ts` — rewritten to 48 lines: `verify` (GET), `webhook` (POST, no auth)
+- `src/routes/checkout.routes.ts` — POST /validate, POST /session/preview, POST /session, POST /pay (all require auth)
+- `src/routes/payment.routes.ts` — GET /verify/:ref (auth), POST /webhook (no auth)
+- `src/validators/payment.validator.ts` — `webhookBodySchema` replaces `initializePaymentSchema`
+
+#### Cart Enrichment
+- `src/services/cart.service.ts` — `formatCartResponse()` now includes `vendorId` and `vendor { storeName, storeSlug }` on each cart item product via batch vendor profile lookup
+- `src/types/cart.types.ts` — `CartItemWithProduct.product` gained `vendorId?` and `vendor?`
+
+#### Other Changes
+- `src/services/order.service.ts` — `formatOrderResponse` now includes `vendorId`, `checkoutSessionId`
+- `src/services/admin.order.service.ts` — removed all `payment: true` includes, added `vendorId`/`checkoutSessionId` to response format
+- `src/configs/envConfig.ts` — removed PAYSTACK_SECRET_KEY, PAYSTACK_PUBLIC_KEY
+
+### Removed
+- `src/configs/paystackConfig.ts` — deleted (Paystack completely removed)
+
+#### Tests (13 new, 47 total)
+- `src/__tests__/checkout/checkout.test.ts` — 13 tests: checkout preview with vendor grouping, stock issue detection, empty cart, confirm with order splitting + stock decrement + cart clearing, 409 on cart change, digital-only without shipping, initialize payment redirect, confirm webhook marks PAID, decline webhook cancels orders, idempotent duplicate webhook, verify payment status, shipping calculation (flat rate + free threshold)
+
+## [0.13.0] - 2026-04-09
+
+### Added — Phase 3: Public Store Pages
+
+#### Store Service
+- `src/services/store.service.ts` — `getStoreBySlug(slug, query)` returns vendor store info + paginated products; validates vendor is active; reuses `listProducts` with vendorId filter for consistent sorting/pagination; returns null for non-existent or suspended/banned vendors
+
+#### Store Controller & Routes
+- `src/controllers/store.controller.ts` — `getStore` handler parses query, calls store service, signs product images, enriches with vendor info, returns 404 for missing stores
+- `src/routes/store.routes.ts` — `GET /api/v1/store/:slug` public store endpoint
+- `src/app.ts` — mounted store routes at `/api/v1/store`
+
+#### Vendor Enrichment on Product Queries
+- `src/services/product.service.ts` — `enrichWithVendorInfo()` batch-fetches vendor profiles (storeName, storeSlug) for products with vendorId; avoids N+1 queries
+- `src/controllers/product.controller.ts` — all public product endpoints now include vendor info: listing, featured, search, single product (slug/id), related products
+
+#### Tests (8 new, 34 total)
+- `src/__tests__/store/store.test.ts` — 8 tests covering: active vendor store lookup, non-existent slug, suspended/banned vendor gates, product visibility (only active+approved), pagination, vendor enrichment
+
+## [0.12.0] - 2026-04-08
+
+### Added — Phase 2: Vendor Product Management
+
+#### Vendor Product Service
+- `src/services/vendor.product.service.ts` — full CRUD: `vendorCreateProduct` (auto-SKU, unique slug), `vendorListProducts` (paginated), `vendorGetProduct` (ownership check), `vendorUpdateProduct`, `vendorDeleteProduct` (cascade), `vendorToggleProduct`
+
+#### Vendor Product Validator
+- `src/validators/vendor.product.validator.ts` — Zod schemas for create/update product with variants; `vendorProductQuerySchema` for list filtering
+
+#### Vendor Product Controller & Routes
+- `src/controllers/vendor.product.controller.ts` — 6 handlers: list, get, create, update, delete, toggle
+- `src/routes/vendor.routes.ts` — extended with product CRUD routes under `/api/v1/vendor/products`
+
+#### Public Product Listing Vendor Gates
+- `src/services/product.service.ts` — all public queries now filter vendor products by `approvalStatus: 'APPROVED'`; platform products (vendorId = null) pass through unfiltered
+- `prisma/schema.prisma` — added `vendorId` (nullable, indexed) and `approvalStatus` (default: APPROVED) to Product model
+
+#### Tests (11 new, 26 total)
+- `src/__tests__/vendor/products.test.ts` — 11 tests: create digital product, unique slug, variants, list, get by ID, update, toggle, delete, ownership guard, missing product guard
+
+## [0.11.0] - 2026-04-07
+
+### Added — Phase 1: Vendor Identity & Onboarding
+
+#### Prisma Schema
+- `prisma/schema.prisma` — added `VendorStatus` enum (ACTIVE, SUSPENDED, BANNED); added vendor fields to `UserProfile`: `isVendor`, `vendorStatus`, `storeName` (unique), `storeSlug` (unique), `storeDescription`, `vendorSince`
+
+#### Vendor Service
+- `src/services/vendor.service.ts` — `registerVendor` (slug generation, reserved slug check, duplicate detection), `getVendorProfile`, `updateVendorProfile`
+
+#### Vendor Validator
+- `src/validators/vendor.validator.ts` — Zod schemas for registration and profile update
+
+#### Vendor Controller & Routes
+- `src/controllers/vendor.controller.ts` — register, getProfile, updateProfile handlers
+- `src/routes/vendor.routes.ts` — mounted at `/api/v1/vendor`
+
+#### Auth Middleware Expansion
+- `src/middlewares/auth.middleware.ts` — `requireAuth` now selects vendor fields; added `requireVendor` and `requireActiveVendor` middleware
+
+#### Tests (15 new)
+- `src/__tests__/vendor/registration.test.ts` — 8 tests: registration, duplicate slug, reserved slugs, already-vendor guard, profile retrieval
+- `src/__tests__/vendor/middleware.test.ts` — 7 tests: requireVendor/requireActiveVendor/requireAdmin middleware gates
+
 ## [0.10.0] - 2026-02-13
 
 ### Changed — Admin Dashboard Stats Pagination

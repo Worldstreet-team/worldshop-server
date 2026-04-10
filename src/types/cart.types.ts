@@ -35,6 +35,11 @@ export interface CartItemWithProduct {
     salePrice?: number | null;
     stock: number;
     images: ProductImage[];
+    vendorId?: string | null;
+    vendor?: {
+      storeName: string;
+      storeSlug: string;
+    } | null;
   };
   variant?: {
     id: string;

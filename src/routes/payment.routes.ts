@@ -4,13 +4,10 @@ import { requireAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
 
-// Initialize payment (requires auth)
-router.post('/initialize', requireAuth, paymentController.initialize);
-
 // Verify payment after redirect (requires auth)
-router.get('/verify/:reference', requireAuth, paymentController.verify);
+router.get('/verify/:ref', requireAuth, paymentController.verify);
 
-// Paystack webhook (NO auth — signature-verified)
+// Mock payment webhook (no auth — called by mock payment page)
 router.post('/webhook', paymentController.webhook);
 
 export default router;

@@ -4,57 +4,44 @@ import { randomUUID } from 'crypto';
 import { OrderStatus, PaymentStatus } from '../../generated/prisma';
 import type { Prisma } from '../../generated/prisma';
 import { CLIENT_URL } from '../configs/envConfig';
-import {
-  initializeTransaction,
-  verifyTransaction,
-} from '../configs/paystackConfig';
 import type {
-  InitializePaymentResult,
+  PaymentServiceInterface,
+  InitPaymentParams,
+  InitPaymentResult,
   VerifyPaymentResult,
-  PaystackWebhookEvent,
+  WebhookResult,
 } from '../types/payment.types';
 import { sendOrderReceipt, sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
+import { settleOrder } from './ledger.write.service';
 import { globalLog as logger } from '../configs/loggerConfig';
 
-type ReceiptMetadata = {
-  receiptSentAt?: string;
-};
+// ─── Receipt helpers ────────────────────────────────────────────
 
-function getReceiptMetadata(metadata: unknown): ReceiptMetadata {
-  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
-    return metadata as ReceiptMetadata;
-  }
-  return {};
-}
-
-function withReceiptSentAt(metadata: unknown): Record<string, unknown> {
-  const base = getReceiptMetadata(metadata) as Record<string, unknown>;
-  return {
-    ...base,
-    receiptSentAt: new Date().toISOString(),
-  };
-}
-
-async function sendReceiptIfNeeded(
+/**
+ * Send receipt for a paid order (deduped via per-order key in Payment metadata).
+ */
+async function sendReceiptForOrder(
   paymentId: string,
   orderId: string,
   paidAt: string,
-  paymentChannel: string,
   fallbackEmail?: string,
 ): Promise<void> {
   const paymentRecord = await prisma.payment.findUnique({
     where: { id: paymentId },
   });
 
-  if (!paymentRecord) {
-    return;
-  }
+  if (!paymentRecord) return;
 
-  const meta = getReceiptMetadata(paymentRecord.metadata);
-  if (meta.receiptSentAt) {
-    return;
-  }
+  // Dedupe check: per-order key in metadata
+  const existingMeta =
+    paymentRecord.metadata &&
+    typeof paymentRecord.metadata === 'object' &&
+    !Array.isArray(paymentRecord.metadata)
+      ? (paymentRecord.metadata as Record<string, unknown>)
+      : {};
+  const orderReceiptKey = `receiptSent_${orderId}`;
+  if (existingMeta[orderReceiptKey]) return;
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -65,9 +52,7 @@ async function sendReceiptIfNeeded(
     },
   });
 
-  if (!order) {
-    return;
-  }
+  if (!order) return;
 
   const profile = await prisma.userProfile.findUnique({
     where: { userId: order.userId },
@@ -96,13 +81,11 @@ async function sendReceiptIfNeeded(
   const customerName =
     profile?.firstName || shippingAddr?.firstName || 'Customer';
 
-  // Check if this order contains only digital products
   const isDigitalOnly = order.items.every(
     (item) => item.product.type === 'DIGITAL',
   );
 
   if (isDigitalOnly) {
-    // For digital-only orders, send only the digital delivery email
     const deliverySent = await handleDigitalDelivery(
       orderId,
       order.userId,
@@ -112,29 +95,10 @@ async function sendReceiptIfNeeded(
     );
 
     if (deliverySent) {
-      // Mark receipt as sent to prevent duplicates
-      void prisma.payment
-        .update({
-          where: { id: paymentRecord.id },
-          data: {
-            metadata: withReceiptSentAt(
-              paymentRecord.metadata,
-            ) as Prisma.InputJsonValue,
-          },
-        })
-        .catch(() => {
-          logger.warn('[Email] Failed to persist receiptSentAt metadata', {
-            paymentId: paymentRecord.id,
-          });
-        });
-    } else {
-      logger.warn('[DigitalDelivery] Email not sent; receipt not marked', {
-        orderId,
-        orderNumber: order.orderNumber,
-      });
+      void markOrderReceiptSent(paymentRecord.id, orderId, existingMeta);
     }
   } else {
-    // For physical/mixed orders: create download records first, then include links in the receipt
+    // Physical / mixed orders
     let digitalDownloads:
       | {
           fileName: string;
@@ -156,10 +120,7 @@ async function sendReceiptIfNeeded(
         } catch (createErr) {
           logger.warn(
             '[Email] createDownloadRecords error (may be duplicate)',
-            {
-              orderId,
-              error: (createErr as Error).message,
-            },
+            { orderId, error: (createErr as Error).message },
           );
         }
 
@@ -183,7 +144,7 @@ async function sendReceiptIfNeeded(
               return {
                 fileName: asset?.fileName || 'Unknown file',
                 fileSize: asset?.fileSize || 0,
-                downloadUrl: '', // Do NOT include direct signed URLs in email - users must download from dashboard
+                downloadUrl: '',
                 maxDownloads: dl.maxDownloads,
                 expiresAt: dl.expiresAt,
               };
@@ -193,15 +154,11 @@ async function sendReceiptIfNeeded(
       } catch (err) {
         logger.error(
           '[Email] Failed to prepare digital downloads for receipt',
-          {
-            orderId,
-            error: (err as Error).message,
-          },
+          { orderId, error: (err as Error).message },
         );
       }
     }
 
-    // Send the general receipt with digital download links embedded
     void sendOrderReceipt({
       customerEmail,
       customerName,
@@ -219,36 +176,47 @@ async function sendReceiptIfNeeded(
       shipping: order.shipping,
       discount: order.discount,
       total: order.total,
-      paymentChannel: paymentChannel || 'card',
+      paymentChannel: 'mock',
       paidAt,
       shippingAddress: shippingAddr!,
       digitalDownloads,
     }).then((sent) => {
-      if (!sent) {
-        return;
-      }
-
-      return prisma.payment
-        .update({
-          where: { id: paymentRecord.id },
-          data: {
-            metadata: withReceiptSentAt(
-              paymentRecord.metadata,
-            ) as Prisma.InputJsonValue,
-          },
-        })
-        .catch(() => {
-          logger.warn('[Email] Failed to persist receiptSentAt metadata', {
-            paymentId: paymentRecord.id,
-          });
-        });
+      if (!sent) return;
+      return markOrderReceiptSent(
+        paymentRecord.id,
+        orderId,
+        existingMeta,
+      );
     });
   }
 }
 
+function markOrderReceiptSent(
+  paymentId: string,
+  orderId: string,
+  existingMetadata: Record<string, unknown>,
+): Promise<void> {
+  return prisma.payment
+    .update({
+      where: { id: paymentId },
+      data: {
+        metadata: {
+          ...existingMetadata,
+          [`receiptSent_${orderId}`]: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    })
+    .then(() => {})
+    .catch(() => {
+      logger.warn('[Email] Failed to persist receiptSentAt metadata', {
+        paymentId,
+        orderId,
+      });
+    });
+}
+
 /**
  * Handle digital product delivery after payment.
- * Creates download records and sends digital delivery email.
  */
 async function handleDigitalDelivery(
   orderId: string,
@@ -258,7 +226,6 @@ async function handleDigitalDelivery(
   orderNumber: string,
 ): Promise<boolean> {
   try {
-    // Create download records for any digital products (ignore duplicates on retry)
     try {
       await createDownloadRecords(orderId, userId);
       logger.info('[DigitalDelivery] Download records created', {
@@ -266,17 +233,12 @@ async function handleDigitalDelivery(
         orderNumber,
       });
     } catch (createErr) {
-      // Duplicates from webhook+verify race are expected — continue to query & send email
       logger.warn(
         '[DigitalDelivery] createDownloadRecords error (may be duplicate)',
-        {
-          orderId,
-          error: (createErr as Error).message,
-        },
+        { orderId, error: (createErr as Error).message },
       );
     }
 
-    // Check if there are any digital items in this order
     const orderItemIds = (
       await prisma.orderItem.findMany({
         where: { orderId },
@@ -288,15 +250,7 @@ async function handleDigitalDelivery(
       where: { userId, orderItemId: { in: orderItemIds } },
     });
 
-    logger.info('[DigitalDelivery] Found download records', {
-      orderId,
-      orderNumber,
-      count: downloads.length,
-    });
-
     if (downloads.length > 0) {
-      // Get asset info - do NOT generate presigned download URLs for email
-      // Users must access downloads through their dashboard for tracking
       const downloadInfo = await Promise.all(
         downloads.map(async (dl) => {
           const asset = await prisma.digitalAsset.findUnique({
@@ -306,157 +260,329 @@ async function handleDigitalDelivery(
             fileName: asset?.fileName || 'Unknown file',
             fileSize: asset?.fileSize || 0,
             downloadId: dl.id,
-            downloadUrl: '', // Empty - users download from dashboard
+            downloadUrl: '',
             maxDownloads: dl.maxDownloads,
             expiresAt: dl.expiresAt,
           };
         }),
       );
 
-      const sent = await sendDigitalProductDelivery({
+      return await sendDigitalProductDelivery({
         customerEmail,
         customerName,
         orderNumber,
         downloads: downloadInfo,
       });
-
-      logger.info('[DigitalDelivery] Email send result', {
-        orderId,
-        orderNumber,
-        sent,
-        to: customerEmail,
-        fileCount: downloadInfo.length,
-      });
-
-      return sent;
-    } else {
-      logger.warn(
-        '[DigitalDelivery] No download records found — email not sent',
-        {
-          orderId,
-          orderNumber,
-          userId,
-          orderItemIds,
-        },
-      );
-
-      return false;
     }
+
+    return false;
   } catch (err) {
     logger.error('[DigitalDelivery] Failed to process digital delivery', {
       orderId,
       orderNumber,
       error: (err as Error).message,
-      stack: (err as Error).stack,
     });
-
     return false;
   }
 }
 
-/**
- * Generate a unique payment reference.
- * Format: WS-PAY-<nanoid>
- */
-function generateReference(): string {
+// ─── Reference generator ────────────────────────────────────────
+
+function generateTransactionRef(): string {
   const uuid = randomUUID().replace(/-/g, '');
   return `WS-PAY-${uuid.slice(0, 16)}`;
 }
 
+// ─── Mock Payment Service ───────────────────────────────────────
+
+const mockPaymentService: PaymentServiceInterface = {
+  async initializePayment(
+    params: InitPaymentParams,
+  ): Promise<InitPaymentResult> {
+    const transactionRef = generateTransactionRef();
+    const clientUrl = CLIENT_URL || 'http://localhost:5173';
+    const redirectUrl = `${clientUrl}/checkout/mock-payment?session=${params.checkoutSessionId}&ref=${transactionRef}`;
+
+    return {
+      transactionRef,
+      action: { type: 'redirect', url: redirectUrl },
+    };
+  },
+
+  async verifyPayment(transactionRef: string): Promise<VerifyPaymentResult> {
+    const payment = await prisma.payment.findUnique({
+      where: { transactionRef },
+    });
+
+    if (!payment) {
+      throw createError(404, 'Payment not found');
+    }
+
+    const orders = payment.checkoutSessionId
+      ? await prisma.order.findMany({
+          where: { checkoutSessionId: payment.checkoutSessionId },
+          select: { id: true, orderNumber: true, status: true },
+        })
+      : [];
+
+    return {
+      status:
+        payment.status === PaymentStatus.COMPLETED
+          ? 'success'
+          : payment.status === PaymentStatus.FAILED
+            ? 'failed'
+            : 'pending',
+      transactionRef: payment.transactionRef || transactionRef,
+      amount: payment.amount,
+      paidAt: payment.paidAt?.toISOString() || '',
+      orders: orders.map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+      })),
+    };
+  },
+
+  async handleWebhook(
+    rawBody: string,
+    _signature: string,
+  ): Promise<WebhookResult> {
+    let body: { checkoutSessionId: string; action: 'confirm' | 'decline' };
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return { status: 'ignored' };
+    }
+
+    const { checkoutSessionId, action } = body;
+    if (!checkoutSessionId || !action) {
+      return { status: 'ignored' };
+    }
+
+    const payment = await prisma.payment.findUnique({
+      where: { checkoutSessionId },
+    });
+
+    if (!payment) {
+      return { status: 'ignored' };
+    }
+
+    // Idempotent — already processed
+    if (
+      payment.status === PaymentStatus.COMPLETED ||
+      payment.status === PaymentStatus.FAILED
+    ) {
+      return {
+        status:
+          payment.status === PaymentStatus.COMPLETED ? 'completed' : 'failed',
+      };
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { checkoutSessionId },
+    });
+
+    if (action === 'confirm') {
+      const paidAt = new Date();
+
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { checkoutSessionId },
+          data: {
+            status: PaymentStatus.COMPLETED,
+            paidAt,
+            providerData: {
+              confirmedAt: paidAt.toISOString(),
+              method: 'mock',
+            } as Prisma.InputJsonValue,
+          },
+        }),
+        ...orders.flatMap((order) => [
+          prisma.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.PAID, paidAt },
+          }),
+          prisma.orderStatusHistory.create({
+            data: {
+              orderId: order.id,
+              status: OrderStatus.PAID,
+              note: 'Payment confirmed via mock payment',
+            },
+          }),
+        ]),
+      ]);
+
+      // Send receipts for each order (non-blocking)
+      for (const order of orders) {
+        void sendReceiptForOrder(
+          payment.id,
+          order.id,
+          paidAt.toISOString(),
+        );
+      }
+
+      // Settle commission for vendor orders (non-blocking, idempotent)
+      for (const order of orders) {
+        if (order.vendorId) {
+          void settleOrder(order.id).catch((err) => {
+            logger.error('[Ledger] Failed to settle order', {
+              orderId: order.id,
+              error: (err as Error).message,
+            });
+          });
+        }
+      }
+
+      return { status: 'completed' };
+    }
+
+    if (action === 'decline') {
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { checkoutSessionId },
+          data: {
+            status: PaymentStatus.FAILED,
+            providerData: {
+              declinedAt: new Date().toISOString(),
+              method: 'mock',
+            } as Prisma.InputJsonValue,
+          },
+        }),
+        ...orders.flatMap((order) => [
+          prisma.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.CANCELLED },
+          }),
+          prisma.orderStatusHistory.create({
+            data: {
+              orderId: order.id,
+              status: OrderStatus.CANCELLED,
+              note: 'Payment declined via mock payment',
+            },
+          }),
+        ]),
+      ]);
+
+      // Restore stock for declined orders
+      for (const order of orders) {
+        const items = await prisma.orderItem.findMany({
+          where: { orderId: order.id },
+          include: { product: { select: { type: true } } },
+        });
+        for (const item of items) {
+          if (item.product.type === 'DIGITAL') continue;
+          if (item.variantId) {
+            await prisma.productVariant.update({
+              where: { id: item.variantId },
+              data: { stock: { increment: item.quantity } },
+            });
+          } else {
+            await prisma.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
+        }
+      }
+
+      return { status: 'failed' };
+    }
+
+    return { status: 'ignored' };
+  },
+};
+
+// ─── Exported payment service (swap for crypto later) ───────────
+
+export const paymentService: PaymentServiceInterface = mockPaymentService;
+
+// ─── High-level functions used by controllers ───────────────────
+
 /**
- * Initialize a Paystack payment for an order.
- * Order must be CREATED and have no existing payment.
+ * Initialize payment for a checkout session.
+ * Creates a Payment record and returns the redirect action.
  */
 export async function initializePayment(
   userId: string,
   userEmail: string,
-  orderId: string,
-): Promise<InitializePaymentResult> {
-  // Find the order and verify ownership
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: { payment: true },
+  checkoutSessionId: string,
+): Promise<InitPaymentResult> {
+  const orders = await prisma.order.findMany({
+    where: { checkoutSessionId, userId },
   });
 
-  if (!order) {
-    throw createError(404, 'Order not found');
+  if (orders.length === 0) {
+    throw createError(404, 'Checkout session not found');
   }
 
-  if (order.userId !== userId) {
-    throw createError(403, 'Not authorized to pay for this order');
+  const allCreated = orders.every((o) => o.status === OrderStatus.CREATED);
+  if (!allCreated) {
+    throw createError(400, 'Checkout session is not in a payable state');
   }
 
-  if (order.status !== OrderStatus.CREATED) {
-    throw createError(400, 'Order is not in a payable state');
+  // Check for existing pending payment
+  const existingPayment = await prisma.payment.findUnique({
+    where: { checkoutSessionId },
+  });
+
+  if (existingPayment) {
+    if (existingPayment.status === PaymentStatus.COMPLETED) {
+      throw createError(400, 'This checkout session has already been paid for');
+    }
+    if (existingPayment.status === PaymentStatus.PENDING) {
+      const result = await paymentService.initializePayment({
+        checkoutSessionId,
+        userId,
+        userEmail,
+        amount: existingPayment.amount,
+        currency: existingPayment.currency,
+      });
+      await prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: { transactionRef: result.transactionRef },
+      });
+      return result;
+    }
   }
 
-  // If there's an existing PENDING payment, return that instead of creating a new one
-  if (order.payment && order.payment.status === PaymentStatus.PENDING) {
-    // Re-initialize with Paystack to get a fresh authorization URL
-    const callbackUrl = `${CLIENT_URL || 'http://localhost:5173'}/checkout/success`;
-    const paystackRes = await initializeTransaction(
-      userEmail,
-      order.total,
-      order.payment.reference!,
-      { orderId: order.id, orderNumber: order.orderNumber, userId },
-      callbackUrl,
-    );
+  const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
 
-    return {
-      authorizationUrl: paystackRes.data.authorization_url,
-      accessCode: paystackRes.data.access_code,
-      reference: paystackRes.data.reference,
-    };
-  }
-
-  // Prevent duplicate completed payments
-  if (order.payment && order.payment.status === PaymentStatus.COMPLETED) {
-    throw createError(400, 'This order has already been paid for');
-  }
-
-  const reference = generateReference();
-  const callbackUrl = `${CLIENT_URL || 'http://localhost:5173'}/checkout/success`;
-
-  // Call Paystack to initialize transaction
-  const paystackRes = await initializeTransaction(
+  const result = await paymentService.initializePayment({
+    checkoutSessionId,
+    userId,
     userEmail,
-    order.total,
-    reference,
-    { orderId: order.id, orderNumber: order.orderNumber, userId },
-    callbackUrl,
-  );
-
-  // Create Payment record in DB
-  await prisma.payment.create({
-    data: {
-      orderId: order.id,
-      userId,
-      amount: order.total,
-      currency: 'NGN',
-      status: PaymentStatus.PENDING,
-      provider: 'paystack',
-      reference,
+    amount: totalAmount,
+    currency: 'NGN',
+    metadata: {
+      orderCount: orders.length,
+      orderNumbers: orders.map((o) => o.orderNumber),
     },
   });
 
-  return {
-    authorizationUrl: paystackRes.data.authorization_url,
-    accessCode: paystackRes.data.access_code,
-    reference: paystackRes.data.reference,
-  };
+  await prisma.payment.create({
+    data: {
+      checkoutSessionId,
+      userId,
+      amount: totalAmount,
+      currency: 'NGN',
+      status: PaymentStatus.PENDING,
+      provider: 'mock',
+      transactionRef: result.transactionRef,
+    },
+  });
+
+  return result;
 }
 
 /**
- * Verify a payment by reference (called when user returns from Paystack).
+ * Verify a payment by transaction reference.
  */
 export async function verifyPayment(
   userId: string,
-  reference: string,
+  transactionRef: string,
 ): Promise<VerifyPaymentResult> {
-  // Find the payment record
   const payment = await prisma.payment.findUnique({
-    where: { reference },
-    include: { order: true },
+    where: { transactionRef },
   });
 
   if (!payment) {
@@ -467,171 +593,15 @@ export async function verifyPayment(
     throw createError(403, 'Not authorized to verify this payment');
   }
 
-  // If already completed, return cached result
-  if (payment.status === PaymentStatus.COMPLETED) {
-    return {
-      status: 'success',
-      reference: payment.reference!,
-      amount: payment.amount,
-      channel: payment.channel || 'unknown',
-      paidAt: payment.paidAt?.toISOString() || '',
-      order: {
-        id: payment.order.id,
-        orderNumber: payment.order.orderNumber,
-        status: payment.order.status,
-      },
-    };
-  }
-
-  // Verify with Paystack
-  const paystackRes = await verifyTransaction(reference);
-  const data = paystackRes.data;
-
-  if (data.status === 'success') {
-    // Update payment and order status in a transaction
-    const [updatedPayment] = await prisma.$transaction([
-      prisma.payment.update({
-        where: { reference },
-        data: {
-          status: PaymentStatus.COMPLETED,
-          paystackId: String(data.id),
-          channel: data.channel,
-          paidAt: new Date(data.paid_at),
-        },
-      }),
-      prisma.order.update({
-        where: { id: payment.orderId },
-        data: {
-          status: OrderStatus.PAID,
-          paidAt: new Date(data.paid_at),
-        },
-      }),
-      prisma.orderStatusHistory.create({
-        data: {
-          orderId: payment.orderId,
-          status: OrderStatus.PAID,
-          note: `Payment confirmed via Paystack (${data.channel})`,
-        },
-      }),
-    ]);
-
-    // Fallback: send receipt after verify (if webhook did not fire)
-    void sendReceiptIfNeeded(
-      updatedPayment.id,
-      payment.orderId,
-      data.paid_at,
-      data.channel || 'card',
-      data.customer?.email,
-    );
-
-    return {
-      status: 'success',
-      reference: updatedPayment.reference!,
-      amount: updatedPayment.amount,
-      channel: data.channel,
-      paidAt: data.paid_at,
-      order: {
-        id: payment.order.id,
-        orderNumber: payment.order.orderNumber,
-        status: OrderStatus.PAID,
-      },
-    };
-  }
-
-  // Payment failed or was abandoned
-  if (data.status === 'failed' || data.status === 'abandoned') {
-    await prisma.payment.update({
-      where: { reference },
-      data: {
-        status: PaymentStatus.FAILED,
-        paystackId: String(data.id),
-        channel: data.channel || null,
-      },
-    });
-  }
-
-  return {
-    status: data.status,
-    reference,
-    amount: payment.amount,
-    channel: data.channel || 'unknown',
-    paidAt: '',
-    order: {
-      id: payment.order.id,
-      orderNumber: payment.order.orderNumber,
-      status: payment.order.status,
-    },
-  };
+  return paymentService.verifyPayment(transactionRef);
 }
 
 /**
- * Handle a Paystack webhook event.
- * Called after HMAC signature verification in the controller.
+ * Handle a webhook from the payment provider.
  */
 export async function handleWebhook(
-  event: PaystackWebhookEvent,
-): Promise<void> {
-  const { data } = event;
-  const reference = data.reference;
-
-  // Find the payment
-  const payment = await prisma.payment.findUnique({
-    where: { reference },
-  });
-
-  if (!payment) {
-    // Unknown reference — ignore silently
-    return;
-  }
-
-  // Already completed — idempotent, skip
-  if (payment.status === PaymentStatus.COMPLETED) {
-    return;
-  }
-
-  if (event.event === 'charge.success' && data.status === 'success') {
-    await prisma.$transaction([
-      prisma.payment.update({
-        where: { reference },
-        data: {
-          status: PaymentStatus.COMPLETED,
-          paystackId: String(data.id),
-          channel: data.channel,
-          paidAt: new Date(data.paid_at),
-        },
-      }),
-      prisma.order.update({
-        where: { id: payment.orderId },
-        data: {
-          status: OrderStatus.PAID,
-          paidAt: new Date(data.paid_at),
-        },
-      }),
-      prisma.orderStatusHistory.create({
-        data: {
-          orderId: payment.orderId,
-          status: OrderStatus.PAID,
-          note: `Payment confirmed via Paystack webhook (${data.channel})`,
-        },
-      }),
-    ]);
-
-    // Send order receipt email (non-blocking, deduped)
-    void sendReceiptIfNeeded(
-      payment.id,
-      payment.orderId,
-      data.paid_at,
-      data.channel || 'card',
-      data.customer?.email,
-    );
-  } else if (event.event === 'charge.failed') {
-    await prisma.payment.update({
-      where: { reference },
-      data: {
-        status: PaymentStatus.FAILED,
-        paystackId: String(data.id),
-        channel: data.channel || null,
-      },
-    });
-  }
+  rawBody: string,
+  signature: string,
+): Promise<WebhookResult> {
+  return paymentService.handleWebhook(rawBody, signature);
 }

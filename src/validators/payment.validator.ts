@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 /**
- * Validate initialize payment request.
+ * Validate webhook request body.
  */
-export const initializePaymentSchema = z.object({
-  orderId: z.string().min(1, 'Order ID is required'),
+export const webhookBodySchema = z.object({
+  checkoutSessionId: z.string().min(1, 'checkoutSessionId is required'),
+  action: z.enum(['confirm', 'decline']),
 });
 
-export type InitializePaymentInput = z.infer<typeof initializePaymentSchema>;
+export type WebhookBodyInput = z.infer<typeof webhookBodySchema>;

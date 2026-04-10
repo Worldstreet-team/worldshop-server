@@ -1,91 +1,66 @@
 /**
  * Payment types for the backend.
- * Align with Prisma schema and Paystack API contracts.
+ * Provider-agnostic payment service interface.
  */
 import type { PaymentStatus } from '../../generated/prisma';
 
 export { PaymentStatus } from '../../generated/prisma';
 
+// ─── Provider types ─────────────────────────────────────────────
+export type PaymentProviderType = 'mock' | 'crypto';
+
+export type PaymentAction =
+  | { type: 'redirect'; url: string }
+  | { type: 'display'; instructions: string };
+
 // ─── Payment response for API ───────────────────────────────────
 export interface PaymentResponse {
   id: string;
-  orderId: string;
+  checkoutSessionId: string;
   userId: string;
   amount: number;
   currency: string;
   status: PaymentStatus;
   provider: string;
-  reference: string | null;
-  paystackId: string | null;
-  channel: string | null;
+  transactionRef: string | null;
   createdAt: Date;
   updatedAt: Date;
   paidAt: Date | null;
 }
 
-// ─── Initialize payment result ──────────────────────────────────
-export interface InitializePaymentResult {
-  authorizationUrl: string;
-  accessCode: string;
-  reference: string;
+// ─── Payment service interface ──────────────────────────────────
+export interface InitPaymentParams {
+  checkoutSessionId: string;
+  userId: string;
+  userEmail: string;
+  amount: number;
+  currency: string;
+  metadata?: Record<string, unknown>;
 }
 
-// ─── Verify payment result ──────────────────────────────────────
+export interface InitPaymentResult {
+  transactionRef: string;
+  action: PaymentAction;
+}
+
 export interface VerifyPaymentResult {
-  status: string;
-  reference: string;
-  amount: number;      // in NGN (converted back from kobo)
-  channel: string;
+  status: 'success' | 'failed' | 'pending';
+  transactionRef: string;
+  amount: number;
   paidAt: string;
-  order: {
+  orders: Array<{
     id: string;
     orderNumber: string;
     status: string;
-  };
+  }>;
 }
 
-// ─── Paystack API response shapes ───────────────────────────────
-export interface PaystackInitResponse {
-  status: boolean;
-  message: string;
-  data: {
-    authorization_url: string;
-    access_code: string;
-    reference: string;
-  };
+export interface WebhookResult {
+  status: 'completed' | 'failed' | 'ignored';
 }
 
-export interface PaystackVerifyResponse {
-  status: boolean;
-  message: string;
-  data: {
-    id: number;
-    status: string;          // "success", "failed", "abandoned"
-    reference: string;
-    amount: number;          // in kobo
-    currency: string;
-    channel: string;
-    paid_at: string;
-    customer: {
-      email: string;
-    };
-    metadata?: Record<string, unknown>;
-  };
-}
-
-export interface PaystackWebhookEvent {
-  event: string;             // "charge.success", "charge.failed", etc.
-  data: {
-    id: number;
-    status: string;
-    reference: string;
-    amount: number;          // in kobo
-    currency: string;
-    channel: string;
-    paid_at: string;
-    customer: {
-      email: string;
-    };
-    metadata?: Record<string, unknown>;
-  };
+export interface PaymentServiceInterface {
+  initializePayment(params: InitPaymentParams): Promise<InitPaymentResult>;
+  verifyPayment(transactionRef: string): Promise<VerifyPaymentResult>;
+  handleWebhook(rawBody: string, signature: string): Promise<WebhookResult>;
 }
