@@ -14,6 +14,8 @@ import * as vendorOrderController from '../controllers/vendor.order.controller';
 import * as vendorAnalyticsController from '../controllers/vendor.analytics.controller';
 import * as vendorReviewController from '../controllers/vendor.review.controller';
 import { updateVendorOrderStatusSchema } from '../validators/vendor.order.validator';
+import { uploadProductImages, uploadDigitalFiles, handleMulterError } from '../middlewares/upload.middleware';
+import * as uploadController from '../controllers/upload.controller';
 
 const router = Router();
 
@@ -26,6 +28,11 @@ router.use(requireAuth, requireVendor);
 // ─── Vendor Profile ─────────────────────────────────────────────
 router.get('/profile', vendorController.getProfile);
 router.patch('/profile', validate(updateVendorSchema), vendorController.updateProfile);
+
+// ─── Vendor Uploads (reuses same upload controller as admin) ────
+router.post('/upload/images', uploadProductImages, handleMulterError, uploadController.uploadImages);
+router.delete('/upload/images', uploadController.deleteImages);
+router.post('/upload/digital-files', uploadDigitalFiles, handleMulterError, uploadController.uploadDigitalFiles);
 
 // ─── Vendor Products ────────────────────────────────────────────
 router.get('/products', vendorProductController.getProducts);
