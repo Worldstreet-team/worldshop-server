@@ -212,7 +212,7 @@ async function groupItemsByVendor(
           productId: item.productId,
           variantId: item.variantId,
           productName: item.product.name,
-          productImage: primaryImage,
+          image: primaryImage,
           variantName: item.variant?.name || null,
           quantity: item.quantity,
           unitPrice: price,
@@ -300,6 +300,10 @@ export async function previewCheckoutSession(
   const subtotal = vendorGroups.reduce((s, g) => s + g.subtotal, 0);
   const shipping = vendorGroups.reduce((s, g) => s + g.shipping, 0);
   const total = subtotal + shipping;
+  const itemCount = vendorGroups.reduce(
+    (count, g) => count + g.items.reduce((c, i) => c + i.quantity, 0),
+    0,
+  );
 
   return {
     snapshotToken,
@@ -310,7 +314,9 @@ export async function previewCheckoutSession(
       orderCount: vendorGroups.length,
       subtotal,
       shipping,
+      discount: 0,
       total,
+      itemCount,
     },
   };
 }

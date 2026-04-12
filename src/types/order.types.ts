@@ -120,7 +120,7 @@ export interface VendorGroup {
     productId: string;
     variantId: string | null;
     productName: string;
-    productImage: string | null;
+    image: string | null;
     variantName: string | null;
     quantity: number;
     unitPrice: number;
@@ -141,7 +141,9 @@ export interface CheckoutSessionPreview {
     orderCount: number;
     subtotal: number;
     shipping: number;
+    discount: number;
     total: number;
+    itemCount: number;
   };
 }
 
