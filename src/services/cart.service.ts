@@ -3,19 +3,13 @@ import createError from 'http-errors';
 import type {
   CartWithTotals,
   CartItemWithProduct,
-  SHIPPING_CONFIG,
 } from '../types/cart.types';
+import { SHIPPING_CONFIG } from '../types/cart.types';
 import type {
   AddToCartInput,
   UpdateCartItemInput,
 } from '../validators/cart.validator';
 import { signProductImages } from '../utils/signUrl';
-
-// Shipping configuration (hardcoded)
-const SHIPPING = {
-  FREE_SHIPPING_THRESHOLD: 50000, // ₦50,000
-  FLAT_RATE: 2500, // ₦2,500
-} as const;
 
 /**
  * Get or create a cart by userId (authenticated) or sessionId (guest).
@@ -26,6 +20,13 @@ export async function getOrCreateCart(
 ): Promise<CartWithTotals> {
   if (!userId && !sessionId) {
     throw createError(400, 'Either userId or sessionId is required');
+  }
+
+  // W2 FIX: Validate sessionId is non-empty and reasonable length
+  if (!userId && sessionId) {
+    if (sessionId.trim().length === 0 || sessionId.length > 128) {
+      throw createError(400, 'Invalid session ID');
+    }
   }
 
   // Upsert can still collide under heavy concurrency in MongoDB.
@@ -126,6 +127,11 @@ export async function addToCart(
 
   if (!product) {
     throw createError(404, 'Product not found');
+  }
+
+  // W3 FIX: Prevent vendors from adding their own products to cart
+  if (userId && product.vendorId === userId) {
+    throw createError(400, 'You cannot add your own products to cart');
   }
 
   // If variantId specified, validate it belongs to the product
@@ -370,6 +376,9 @@ export async function mergeCart(
     where: { cartId: userCart.id },
   });
 
+  // W9 FIX: Track items that had quantities capped
+  const cappedItems: string[] = [];
+
   // Merge items from guest cart
   for (const guestItem of guestCart.items) {
     const existingItem = userItems.find(
@@ -382,10 +391,12 @@ export async function mergeCart(
 
     if (existingItem) {
       // Merge quantities (capped at available stock)
-      const newQuantity = Math.min(
-        existingItem.quantity + guestItem.quantity,
-        availableStock,
-      );
+      const desiredQuantity = existingItem.quantity + guestItem.quantity;
+      const newQuantity = Math.min(desiredQuantity, availableStock);
+
+      if (newQuantity < desiredQuantity) {
+        cappedItems.push(guestItem.product.name);
+      }
 
       await prisma.cartItem.update({
         where: { id: existingItem.id },
@@ -394,6 +405,10 @@ export async function mergeCart(
     } else {
       // Add new item (capped at available stock)
       const quantity = Math.min(guestItem.quantity, availableStock);
+
+      if (quantity < guestItem.quantity) {
+        cappedItems.push(guestItem.product.name);
+      }
 
       if (quantity > 0) {
         await prisma.cartItem.create({
@@ -413,7 +428,16 @@ export async function mergeCart(
     where: { id: guestCart.id },
   });
 
-  return getOrCreateCart(userId);
+  const mergedCart = await getOrCreateCart(userId);
+
+  // Attach warnings about capped items
+  if (cappedItems.length > 0) {
+    (mergedCart as any).warnings = [
+      `Quantities adjusted for: ${cappedItems.join(', ')} (limited by available stock)`,
+    ];
+  }
+
+  return mergedCart;
 }
 
 /**
@@ -550,9 +574,9 @@ async function formatCartResponse(cart: {
   );
   const shipping = isDigitalOnly
     ? 0
-    : subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD
+    : subtotal >= SHIPPING_CONFIG.FREE_SHIPPING_THRESHOLD
       ? 0
-      : SHIPPING.FLAT_RATE;
+      : SHIPPING_CONFIG.FLAT_RATE;
 
   // No discount logic in this phase
   const discount = 0;

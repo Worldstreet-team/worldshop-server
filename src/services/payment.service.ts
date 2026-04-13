@@ -3,7 +3,8 @@ import createError from 'http-errors';
 import { randomUUID } from 'crypto';
 import { OrderStatus, PaymentStatus } from '../../generated/prisma';
 import type { Prisma } from '../../generated/prisma';
-import { CLIENT_URL } from '../configs/envConfig';
+import { CLIENT_URL, PAYMENT_WEBHOOK_SECRET } from '../configs/envConfig';
+import { createHmac } from 'crypto';
 import type {
   PaymentServiceInterface,
   InitPaymentParams,
@@ -103,7 +104,6 @@ async function sendReceiptForOrder(
       | {
           fileName: string;
           fileSize: number;
-          downloadUrl: string;
           maxDownloads: number;
           expiresAt: Date;
         }[]
@@ -144,7 +144,6 @@ async function sendReceiptForOrder(
               return {
                 fileName: asset?.fileName || 'Unknown file',
                 fileSize: asset?.fileSize || 0,
-                downloadUrl: '',
                 maxDownloads: dl.maxDownloads,
                 expiresAt: dl.expiresAt,
               };
@@ -260,7 +259,6 @@ async function handleDigitalDelivery(
             fileName: asset?.fileName || 'Unknown file',
             fileSize: asset?.fileSize || 0,
             downloadId: dl.id,
-            downloadUrl: '',
             maxDownloads: dl.maxDownloads,
             expiresAt: dl.expiresAt,
           };
@@ -345,8 +343,21 @@ const mockPaymentService: PaymentServiceInterface = {
 
   async handleWebhook(
     rawBody: string,
-    _signature: string,
+    signature: string,
   ): Promise<WebhookResult> {
+    // C1 FIX: Validate webhook signature
+    if (PAYMENT_WEBHOOK_SECRET) {
+      const expected = createHmac('sha256', PAYMENT_WEBHOOK_SECRET)
+        .update(rawBody)
+        .digest('hex');
+      if (signature !== expected) {
+        logger.warn('[Webhook] Invalid signature — rejecting payload');
+        return { status: 'ignored' };
+      }
+    } else {
+      logger.warn('[Webhook] PAYMENT_WEBHOOK_SECRET not configured — skipping signature check in dev mode');
+    }
+
     let body: { checkoutSessionId: string; action: 'confirm' | 'decline' };
     try {
       body = JSON.parse(rawBody);
@@ -412,24 +423,36 @@ const mockPaymentService: PaymentServiceInterface = {
         ]),
       ]);
 
-      // Send receipts for each order (non-blocking)
+      // C9 FIX: Await receipts so download records exist before emails send
       for (const order of orders) {
-        void sendReceiptForOrder(
-          payment.id,
-          order.id,
-          paidAt.toISOString(),
-        );
+        try {
+          await sendReceiptForOrder(
+            payment.id,
+            order.id,
+            paidAt.toISOString(),
+          );
+        } catch (err) {
+          logger.error('[Email] Failed to send receipt for order', {
+            orderId: order.id,
+            error: (err as Error).message,
+          });
+        }
       }
 
-      // Settle commission for vendor orders (non-blocking, idempotent)
+      // C4 FIX: Await settlement and log failures for manual resolution
       for (const order of orders) {
         if (order.vendorId) {
-          void settleOrder(order.id).catch((err) => {
-            logger.error('[Ledger] Failed to settle order', {
+          try {
+            await settleOrder(order.id);
+          } catch (err) {
+            logger.error('[Ledger] CRITICAL — Failed to settle order. Manual resolution required.', {
               orderId: order.id,
+              orderNumber: order.orderNumber,
+              vendorId: order.vendorId,
+              checkoutSessionId,
               error: (err as Error).message,
             });
-          });
+          }
         }
       }
 
@@ -463,27 +486,29 @@ const mockPaymentService: PaymentServiceInterface = {
         ]),
       ]);
 
-      // Restore stock for declined orders
-      for (const order of orders) {
-        const items = await prisma.orderItem.findMany({
-          where: { orderId: order.id },
-          include: { product: { select: { type: true } } },
-        });
-        for (const item of items) {
-          if (item.product.type === 'DIGITAL') continue;
-          if (item.variantId) {
-            await prisma.productVariant.update({
-              where: { id: item.variantId },
-              data: { stock: { increment: item.quantity } },
-            });
-          } else {
-            await prisma.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
+      // C3 FIX: Restore stock inside a transaction so partial restores can't happen
+      await prisma.$transaction(async (tx) => {
+        for (const order of orders) {
+          const items = await tx.orderItem.findMany({
+            where: { orderId: order.id },
+            include: { product: { select: { type: true } } },
+          });
+          for (const item of items) {
+            if (item.product.type === 'DIGITAL') continue;
+            if (item.variantId) {
+              await tx.productVariant.update({
+                where: { id: item.variantId },
+                data: { stock: { increment: item.quantity } },
+              });
+            } else {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              });
+            }
           }
         }
-      }
+      });
 
       return { status: 'failed' };
     }

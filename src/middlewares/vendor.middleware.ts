@@ -41,5 +41,14 @@ export function requireVendor(req: Request, res: Response, next: NextFunction): 
     }
   }
 
+  // I5 FIX: Require an explicit ACTIVE status — null status means pending/incomplete onboarding
+  if (req.user.vendorStatus !== 'ACTIVE' && req.user.vendorStatus !== 'SUSPENDED') {
+    res.status(403).json({
+      success: false,
+      message: 'Your vendor account is not yet active. Please complete onboarding.',
+    });
+    return;
+  }
+
   next();
 }

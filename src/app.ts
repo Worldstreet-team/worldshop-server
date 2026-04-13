@@ -97,10 +97,6 @@ app.use('/api/v1/vendor', vendorRoutes);
 app.use('/api/v1/store', storeRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
-app.get('/debug-sentry', (req, res) => {
-  throw new Error('My first Sentry error!');
-});
-
 // Error handlers
 Sentry.setupExpressErrorHandler(app); // sentry error handler middleware
 

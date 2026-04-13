@@ -4,8 +4,8 @@ import { createTestUser } from '../helpers';
 import {
   previewCheckoutSession,
   confirmCheckoutSession,
-  calculateShipping,
 } from '../../services/checkout.service';
+import { calculateShipping } from '../../types/cart.types';
 import {
   initializePayment,
   handleWebhook,

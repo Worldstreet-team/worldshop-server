@@ -6,10 +6,10 @@ import { registerVendorSchema, updateVendorSchema } from '../validators/vendor.v
 import {
   vendorCreateProductSchema,
   vendorUpdateProductSchema,
-  vendorToggleProductSchema,
-} from '../validators/vendor.product.validator';
+  toggleProductSchema,
+} from '../validators/product.management.validator';
 import * as vendorController from '../controllers/vendor.controller';
-import * as vendorProductController from '../controllers/vendor.product.controller';
+import * as productController from '../controllers/product.management.controller';
 import * as vendorOrderController from '../controllers/vendor.order.controller';
 import * as vendorAnalyticsController from '../controllers/vendor.analytics.controller';
 import * as vendorReviewController from '../controllers/vendor.review.controller';
@@ -35,12 +35,12 @@ router.delete('/upload/images', uploadController.deleteImages);
 router.post('/upload/digital-files', uploadDigitalFiles, handleMulterError, uploadController.uploadDigitalFiles);
 
 // ─── Vendor Products ────────────────────────────────────────────
-router.get('/products', vendorProductController.getProducts);
-router.get('/products/:id', vendorProductController.getProduct);
-router.post('/products', validate(vendorCreateProductSchema), vendorProductController.createProduct);
-router.put('/products/:id', validate(vendorUpdateProductSchema), vendorProductController.updateProduct);
-router.delete('/products/:id', vendorProductController.deleteProduct);
-router.patch('/products/:id/toggle', validate(vendorToggleProductSchema), vendorProductController.toggleProduct);
+router.get('/products', productController.vendorListProducts);
+router.get('/products/:id', productController.vendorGetProduct);
+router.post('/products', validate(vendorCreateProductSchema), productController.vendorCreateProduct);
+router.put('/products/:id', validate(vendorUpdateProductSchema), productController.vendorUpdateProduct);
+router.delete('/products/:id', productController.vendorDeleteProduct);
+router.patch('/products/:id/toggle', validate(toggleProductSchema), productController.vendorToggleProduct);
 
 // ─── Vendor Orders ──────────────────────────────────────────────
 router.get('/orders', vendorOrderController.getOrders);

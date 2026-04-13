@@ -61,15 +61,3 @@ export const skipRateLimitFor = (paths: string[]) => {
     next();
   };
 };
-
-// Rate limit bypass for trusted IPs (you can add your trusted IPs here)
-export const trustedIPs = ['127.0.0.1', '::1']; // Add your trusted IPs
-
-export const bypassRateLimitForTrustedIPs = (req: Request, res: Response, next: NextFunction) => {
-  const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
-  if (trustedIPs.includes(clientIP)) {
-    // Skip rate limiting for trusted IPs
-    return next();
-  }
-  next();
-};

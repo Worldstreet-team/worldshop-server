@@ -273,6 +273,7 @@ model Order {
   paidAt          DateTime?
   shippedAt       DateTime?
   deliveredAt     DateTime?
+  refundedAt      DateTime?
 
   @@index([userId])
   @@index([status])

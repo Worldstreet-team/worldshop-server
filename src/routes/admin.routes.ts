@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middlewares/auth.middleware';
 import { requireAdmin } from '../middlewares/admin.middleware';
-import * as adminProductController from '../controllers/admin.product.controller';
+import * as productController from '../controllers/product.management.controller';
 import * as adminCategoryController from '../controllers/admin.category.controller';
 import * as adminOrderController from '../controllers/admin.order.controller';
 import * as adminInventoryController from '../controllers/admin.inventory.controller';
@@ -15,7 +15,7 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 // ─── Dashboard ──────────────────────────────────────────────────
-router.get('/dashboard/stats', adminProductController.getDashboardStats);
+router.get('/dashboard/stats', productController.getDashboardStats);
 
 // ─── Orders Management ─────────────────────────────────────────
 router.get('/orders', adminOrderController.getOrders);
@@ -32,11 +32,11 @@ router.patch('/inventory/:id/adjust', adminInventoryController.adjustStock);
 router.patch('/inventory/:id/threshold', adminInventoryController.updateThreshold);
 
 // ─── Products CRUD ──────────────────────────────────────────────
-router.get('/products', adminProductController.getProducts);
-router.get('/products/:id', adminProductController.getProduct);
-router.post('/products', adminProductController.createProduct);
-router.put('/products/:id', adminProductController.updateProduct);
-router.delete('/products/:id', adminProductController.deleteProduct);
+router.get('/products', productController.adminListProducts);
+router.get('/products/:id', productController.adminGetProduct);
+router.post('/products', productController.adminCreateProduct);
+router.put('/products/:id', productController.adminUpdateProduct);
+router.delete('/products/:id', productController.adminDeleteProduct);
 
 // ─── Digital Assets ─────────────────────────────────────────────
 router.get('/products/:id/digital-assets', uploadController.getDigitalAssets);

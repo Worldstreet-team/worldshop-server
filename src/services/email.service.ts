@@ -42,7 +42,6 @@ interface OrderReceiptData {
   digitalDownloads?: {
     fileName: string;
     fileSize: number;
-    downloadUrl: string;
     maxDownloads: number;
     expiresAt: Date;
   }[];
@@ -430,7 +429,6 @@ interface DigitalDeliveryData {
     fileName: string;
     fileSize: number;
     downloadId: string;
-    downloadUrl: string;
     maxDownloads: number;
     expiresAt: Date;
   }[];

@@ -17,6 +17,7 @@ const {
   R2_SECRET_ACCESS_KEY,
   R2_BUCKET_NAME,
   R2_PUBLIC_URL,
+  PAYMENT_WEBHOOK_SECRET,
 } = process.env;
 
 export { 
@@ -35,4 +36,5 @@ export {
   R2_SECRET_ACCESS_KEY,
   R2_BUCKET_NAME,
   R2_PUBLIC_URL,
+  PAYMENT_WEBHOOK_SECRET,
 };

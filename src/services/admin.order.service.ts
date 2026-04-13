@@ -290,6 +290,8 @@ export async function updateOrderStatus(
     }
   } else if (newStatus === OrderStatus.DELIVERED) {
     updateData.deliveredAt = new Date();
+  } else if (newStatus === OrderStatus.REFUNDED) {
+    updateData.refundedAt = new Date();
   }
 
   // Handle cancellation — restore stock for physical products
@@ -333,6 +335,15 @@ export async function updateOrderStatus(
 
       return updated;
     });
+
+    // C6 FIX: Log that payment refund needs manual processing
+    if (newStatus === OrderStatus.REFUNDED) {
+      logger.warn('[Refund] MANUAL ACTION REQUIRED — Payment refund not yet integrated. Order status set to REFUNDED but customer payment has NOT been returned.', {
+        orderId,
+        orderNumber: order.orderNumber,
+        adminId,
+      });
+    }
 
     return formatAdminOrderResponse(updatedOrder);
   }

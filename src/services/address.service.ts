@@ -46,11 +46,30 @@ export async function createAddress(userId: string, input: CreateAddressInput) {
   // If this is the first address or isDefault requested, handle default logic
   const shouldBeDefault = input.isDefault || count === 0;
 
+  // W1 FIX: Use transaction for default toggle
   if (shouldBeDefault) {
-    // Unset any existing default
-    await prisma.address.updateMany({
-      where: { userId, isDefault: true },
-      data: { isDefault: false },
+    return prisma.$transaction(async (tx) => {
+      await tx.address.updateMany({
+        where: { userId, isDefault: true },
+        data: { isDefault: false },
+      });
+
+      return tx.address.create({
+        data: {
+          userId,
+          label: input.label,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          phone: input.phone,
+          street: input.street,
+          apartment: input.apartment,
+          city: input.city,
+          state: input.state,
+          country: input.country || 'Nigeria',
+          postalCode: input.postalCode,
+          isDefault: true,
+        },
+      });
     });
   }
 
@@ -67,7 +86,7 @@ export async function createAddress(userId: string, input: CreateAddressInput) {
       state: input.state,
       country: input.country || 'Nigeria',
       postalCode: input.postalCode,
-      isDefault: shouldBeDefault,
+      isDefault: false,
     },
   });
 }
@@ -84,11 +103,17 @@ export async function updateAddress(
   // Verify ownership
   const existing = await getAddressById(addressId, userId);
 
-  // If setting as default, unset others
+  // If setting as default, unset others (W1 FIX: transactional)
   if (input.isDefault && !existing.isDefault) {
-    await prisma.address.updateMany({
-      where: { userId, isDefault: true },
-      data: { isDefault: false },
+    return prisma.$transaction(async (tx) => {
+      await tx.address.updateMany({
+        where: { userId, isDefault: true },
+        data: { isDefault: false },
+      });
+      return tx.address.update({
+        where: { id: addressId },
+        data: input,
+      });
     });
   }
 
@@ -124,15 +149,18 @@ export async function setDefaultAddress(addressId: string, userId: string) {
   // Verify ownership
   await getAddressById(addressId, userId);
 
-  // Unset current default
-  await prisma.address.updateMany({
-    where: { userId, isDefault: true },
-    data: { isDefault: false },
-  });
+  // W1 FIX: Use transaction for default toggle
+  return prisma.$transaction(async (tx) => {
+    // Unset current default
+    await tx.address.updateMany({
+      where: { userId, isDefault: true },
+      data: { isDefault: false },
+    });
 
-  // Set new default
-  return prisma.address.update({
-    where: { id: addressId },
-    data: { isDefault: true },
+    // Set new default
+    return tx.address.update({
+      where: { id: addressId },
+      data: { isDefault: true },
+    });
   });
 }

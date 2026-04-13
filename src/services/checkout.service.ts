@@ -11,17 +11,7 @@ import type {
   ShippingAddress,
 } from '../types/order.types';
 import { signR2Key } from '../utils/signUrl';
-
-// ─── Shipping config ────────────────────────────────────────────
-
-const SHIPPING = {
-  FREE_SHIPPING_THRESHOLD: 50000, // ₦50,000
-  FLAT_RATE: 2500, // ₦2,500
-} as const;
-
-export function calculateShipping(subtotal: number): number {
-  return subtotal >= SHIPPING.FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING.FLAT_RATE;
-}
+import { calculateShipping } from '../types/cart.types';
 
 export function isDigitalOnlyCart(
   items: Array<{ product: { type?: string } }>,
@@ -359,26 +349,7 @@ export async function confirmCheckoutSession(
     throw err;
   }
 
-  // Re-validate stock/availability inside the transaction
-  for (const item of items) {
-    if (!item.product.isActive) {
-      throw createError(
-        400,
-        `${item.product.name} is no longer available`,
-      );
-    }
-    if (item.product.type !== 'DIGITAL') {
-      const stock = item.variant?.stock ?? item.product.stock;
-      if (stock < item.quantity) {
-        throw createError(
-          400,
-          `Only ${stock} of ${item.product.name} available`,
-        );
-      }
-    }
-  }
-
-  // Group items by vendor
+  // Group items by vendor (before transaction — read-only)
   const vendorIds = [
     ...new Set(items.map((i) => i.product.vendorId).filter(Boolean)),
   ] as string[];
@@ -415,8 +386,40 @@ export async function confirmCheckoutSession(
     throw createError(400, 'Shipping address is required for physical orders');
   }
 
-  // Create all orders atomically in a transaction
+  // C2 FIX: Validate stock AND decrement INSIDE the same transaction
   const createdOrders = await prisma.$transaction(async (tx) => {
+    // Re-validate stock/availability inside the transaction
+    for (const item of items) {
+      if (!item.product.isActive) {
+        throw createError(
+          400,
+          `${item.product.name} is no longer available`,
+        );
+      }
+      if (item.product.type !== 'DIGITAL') {
+        // Read fresh stock inside transaction to prevent race
+        let currentStock: number;
+        if (item.variantId) {
+          const freshVariant = await tx.productVariant.findUnique({
+            where: { id: item.variantId },
+            select: { stock: true },
+          });
+          currentStock = freshVariant?.stock ?? 0;
+        } else {
+          const freshProduct = await tx.product.findUnique({
+            where: { id: item.productId },
+            select: { stock: true },
+          });
+          currentStock = freshProduct?.stock ?? 0;
+        }
+        if (currentStock < item.quantity) {
+          throw createError(
+            400,
+            `Only ${currentStock} of ${item.product.name} available`,
+          );
+        }
+      }
+    }
     const orders: Array<{
       id: string;
       orderNumber: string;

@@ -75,8 +75,16 @@ export interface MergeCartInput {
   sessionId: string;
 }
 
-// ─── Shipping config (hardcoded rates) ──────────────────────────
+// ─── Shipping config (single source of truth) ──────────────────
 export const SHIPPING_CONFIG = {
   FREE_SHIPPING_THRESHOLD: 50000, // ₦50,000
   FLAT_RATE: 2500, // ₦2,500
 } as const;
+
+export type ShippingConfig = typeof SHIPPING_CONFIG;
+
+export function calculateShipping(subtotal: number): number {
+  return subtotal >= SHIPPING_CONFIG.FREE_SHIPPING_THRESHOLD
+    ? 0
+    : SHIPPING_CONFIG.FLAT_RATE;
+}

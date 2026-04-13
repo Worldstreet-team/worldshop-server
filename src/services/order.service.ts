@@ -10,7 +10,8 @@ import type {
   OrdersQueryInput,
   CancelOrderInput,
 } from '../validators/order.validator';
-import { calculateShipping, isDigitalOnlyCart } from './checkout.service';
+import { calculateShipping } from '../types/cart.types';
+import { isDigitalOnlyCart } from './checkout.service';
 import { OrderStatus } from '../../generated/prisma';
 import { signR2Key, signProductImages } from '../utils/signUrl';
 
