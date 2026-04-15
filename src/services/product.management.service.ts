@@ -325,9 +325,9 @@ export class ProductService {
         slug,
         stockKeepingUnit: sku,
         vendorId: this.context.vendorId!,
-        type: 'DIGITAL',
+        type: productData.type ?? 'DIGITAL',
         approvalStatus: 'APPROVED',
-        stock: 999999,
+        stock: (productData.type ?? 'DIGITAL') === 'DIGITAL' ? 999999 : (productData.stock ?? 0),
         images: JSON.parse(JSON.stringify(productData.images || [])),
         variants: variants && variants.length > 0
           ? {

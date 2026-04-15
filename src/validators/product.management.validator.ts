@@ -59,12 +59,14 @@ export const vendorCreateProductSchema = z.object({
   basePrice: z.number().min(0, 'Price must be positive'),
   salePrice: z.number().min(0).optional().nullable(),
   categoryId: z.string().optional().nullable(),
+  type: z.enum(['PHYSICAL', 'DIGITAL']).default('DIGITAL'),
+  stock: z.number().int().min(0).optional(),
   tags: z.array(z.string().max(50)).default([]),
   images: z.array(productImageSchema).default([]),
   variants: z.array(productVariantSchema).optional(),
 });
 
-export type VendorCreateProductInput = z.infer<typeof vendorCreateProductSchema>;
+export type VendorCreateProductInput = z.input<typeof vendorCreateProductSchema>;
 
 export const vendorUpdateProductSchema = vendorCreateProductSchema.partial();
 export type VendorUpdateProductInput = z.infer<typeof vendorUpdateProductSchema>;

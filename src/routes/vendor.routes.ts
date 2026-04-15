@@ -16,6 +16,7 @@ import * as vendorReviewController from '../controllers/vendor.review.controller
 import { updateVendorOrderStatusSchema } from '../validators/vendor.order.validator';
 import { uploadProductImages, uploadDigitalFiles, handleMulterError } from '../middlewares/upload.middleware';
 import * as uploadController from '../controllers/upload.controller';
+import * as vendorDigitalAssetController from '../controllers/vendor.digitalAsset.controller';
 
 const router = Router();
 
@@ -41,6 +42,11 @@ router.post('/products', validate(vendorCreateProductSchema), productController.
 router.put('/products/:id', validate(vendorUpdateProductSchema), productController.vendorUpdateProduct);
 router.delete('/products/:id', productController.vendorDeleteProduct);
 router.patch('/products/:id/toggle', validate(toggleProductSchema), productController.vendorToggleProduct);
+
+// ─── Vendor Digital Assets (attach/manage digital files on products) ─
+router.get('/products/:id/digital-assets', vendorDigitalAssetController.getDigitalAssets);
+router.post('/products/:id/digital-assets', vendorDigitalAssetController.attachDigitalAssets);
+router.delete('/digital-assets/:assetId', vendorDigitalAssetController.deleteDigitalAsset);
 
 // ─── Vendor Orders ──────────────────────────────────────────────
 router.get('/orders', vendorOrderController.getOrders);

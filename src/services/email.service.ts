@@ -652,3 +652,148 @@ function buildDigitalDeliveryHTML(data: DigitalDeliveryData): string {
 </body>
 </html>`;
 }
+
+// ─── Order Status Update Email ──────────────────────────────────
+
+interface OrderStatusUpdateData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: string;
+  orderId: string;
+  newStatus: string;
+  note?: string;
+}
+
+/**
+ * Send order status update email to customer.
+ * Returns true on success, false on failure (never throws).
+ */
+export async function sendOrderStatusUpdate(
+  data: OrderStatusUpdateData,
+): Promise<boolean> {
+  try {
+    const fromAddress = RESEND_FROM_EMAIL || 'orders@worldstreetgold.com';
+    const shopUrl = CLIENT_URL || 'https://shop.worldstreetgold.com';
+
+    const statusLabels: Record<string, string> = {
+      PROCESSING: 'Being Prepared',
+      SHIPPED: 'Shipped',
+      DELIVERED: 'Delivered',
+    };
+    const statusLabel = statusLabels[data.newStatus] || data.newStatus;
+
+    const statusColors: Record<string, string> = {
+      PROCESSING: COLORS.info,
+      SHIPPED: COLORS.warning,
+      DELIVERED: COLORS.success,
+    };
+    const statusColor = statusColors[data.newStatus] || COLORS.info;
+
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;background:${COLORS.gray100};font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.gray100};padding:40px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:${COLORS.white};border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+  <!-- Header -->
+  <tr>
+    <td style="background:${COLORS.secondary};padding:32px 40px;text-align:center;">
+      <table cellpadding="0" cellspacing="0" border="0" align="center">
+        <tr>
+          <td style="background:${COLORS.primary};width:48px;height:48px;border-radius:10px;text-align:center;vertical-align:middle;">
+            <span style="font-size:24px;line-height:48px;">✦</span>
+          </td>
+          <td style="padding-left:14px;">
+            <h1 style="margin:0;color:${COLORS.white};font-size:24px;font-weight:700;letter-spacing:0.5px;">WorldStreet</h1>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Status Banner -->
+  <tr>
+    <td style="background:${statusColor};padding:20px 40px;text-align:center;">
+      <h2 style="margin:0;color:${COLORS.white};font-size:20px;font-weight:700;">
+        Order ${statusLabel}
+      </h2>
+    </td>
+  </tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:32px 40px;">
+      <p style="margin:0 0 16px;color:${COLORS.gray900};font-size:16px;">
+        Hi ${data.customerName},
+      </p>
+      <p style="margin:0 0 24px;color:${COLORS.gray600};font-size:15px;line-height:1.6;">
+        Your order <strong style="color:${COLORS.gray900};">${data.orderNumber}</strong> has been updated to:
+      </p>
+
+      <div style="text-align:center;margin:0 0 24px;">
+        <span style="display:inline-block;background:${statusColor};color:${COLORS.white};padding:10px 28px;border-radius:8px;font-size:18px;font-weight:700;letter-spacing:0.5px;">
+          ${statusLabel.toUpperCase()}
+        </span>
+      </div>
+
+      ${data.note ? `
+      <div style="background:${COLORS.gray50};border-left:4px solid ${statusColor};padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 24px;">
+        <p style="margin:0;color:${COLORS.gray600};font-size:13px;font-weight:600;">Note from seller:</p>
+        <p style="margin:6px 0 0;color:${COLORS.gray900};font-size:14px;">${data.note}</p>
+      </div>` : ''}
+
+      <div style="text-align:center;margin:24px 0;">
+        <a href="${shopUrl}/account/orders" style="display:inline-block;background:${COLORS.primary};color:${COLORS.secondary};padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+          View Order Details
+        </a>
+      </div>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background:${COLORS.gray50};padding:24px 40px;text-align:center;border-top:1px solid ${COLORS.gray200};">
+      <p style="margin:0 0 8px;color:${COLORS.gray600};font-size:13px;">
+        Questions? Contact us at
+        <a href="mailto:support@worldstreetgold.com" style="color:${COLORS.secondary};font-weight:600;">support@worldstreetgold.com</a>
+      </p>
+      <p style="margin:0;color:${COLORS.gray600};font-size:12px;">
+        © ${new Date().getFullYear()} WorldStreet Gold. All rights reserved.
+      </p>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+
+    const { data: resData, error } = await resend.emails.send({
+      from: `WorldStreet Shop <${fromAddress}>`,
+      to: [data.customerEmail],
+      subject: `Order Update — ${data.orderNumber} is now ${statusLabel}`,
+      html,
+    });
+
+    if (error) throw new Error(error.message);
+
+    logger.info('[Email] Order status update sent', {
+      orderNumber: data.orderNumber,
+      to: data.customerEmail,
+      newStatus: data.newStatus,
+      emailId: resData?.id,
+    });
+    return true;
+  } catch (err) {
+    logger.error('[Email] Failed to send order status update', {
+      orderNumber: data.orderNumber,
+      email: data.customerEmail,
+      error: (err as Error).message,
+    });
+    return false;
+  }
+}
