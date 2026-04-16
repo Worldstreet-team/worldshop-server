@@ -14,18 +14,19 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
   // ── Build filter ──────────────────────────────────────────────
   const where: Record<string, unknown> = { isActive: true };
 
-  // Vendor products must be approved to appear publicly
-  // Platform products (vendorId = null) have no approvalStatus gate
-  where.OR = [
-    { vendorId: null },
-    { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-  ];
+  // Exclude unapproved vendor products.
+  // This includes admin products (no vendorId) and approved vendor products.
+  // Uses NOT instead of OR to avoid Prisma MongoDB field-existence issues.
+  where.NOT = {
+    vendorId: { not: null },
+    approvalStatus: { not: 'APPROVED' },
+  };
 
   // Filter by specific vendor
   if (vendorId) {
     where.vendorId = vendorId;
     where.approvalStatus = 'APPROVED';
-    delete where.OR;
+    delete where.NOT;
   }
 
   // Category by ID or slug
@@ -56,7 +57,7 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
   // Featured only
   if (isFeatured !== undefined) where.isFeatured = isFeatured;
 
-  // Full-text search on name, description, tags
+  // Full-text search on name, description, tags — safe alongside NOT
   if (search) {
     where.OR = [
       { name: { contains: search, mode: 'insensitive' } },
@@ -135,12 +136,13 @@ export async function getProductById(id: string) {
  * Falls back to latest active products if not enough featured ones exist.
  */
 export async function getFeaturedProducts(limit: number = 8) {
+  // Exclude unapproved vendor products; include admin + approved vendor products
   const visibilityFilter = {
     isActive: true,
-    OR: [
-      { vendorId: null },
-      { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-    ],
+    NOT: {
+      vendorId: { not: null },
+      approvalStatus: { not: 'APPROVED' },
+    },
   };
 
   const featured = await prisma.product.findMany({
@@ -182,10 +184,10 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
       isActive: true,
       categoryId: product.categoryId,
       id: { not: productId },
-      OR: [
-        { vendorId: null },
-        { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-      ],
+      NOT: {
+        vendorId: { not: null },
+        approvalStatus: { not: 'APPROVED' },
+      },
     },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
@@ -198,10 +200,10 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
       where: {
         isActive: true,
         id: { notIn: [productId, ...related.map((r) => r.id)] },
-        OR: [
-          { vendorId: null },
-          { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-        ],
+        NOT: {
+          vendorId: { not: null },
+          approvalStatus: { not: 'APPROVED' },
+        },
       },
       include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy: { avgRating: 'desc' },
@@ -226,14 +228,10 @@ export async function searchProducts(q: string, limit: number = 10) {
         { brand: { contains: q, mode: 'insensitive' } },
         { tags: { hasSome: [q.toLowerCase()] } },
       ],
-      AND: [
-        {
-          OR: [
-            { vendorId: null },
-            { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-          ],
-        },
-      ],
+      NOT: {
+        vendorId: { not: null },
+        approvalStatus: { not: 'APPROVED' },
+      },
     },
     include: { category: true },
     orderBy: { avgRating: 'desc' },

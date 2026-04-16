@@ -19,10 +19,10 @@ export async function getAllCategories() {
           products: {
             where: {
               isActive: true,
-              OR: [
-                { vendorId: null },
-                { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-              ],
+              NOT: {
+                vendorId: { not: null },
+                approvalStatus: { not: 'APPROVED' },
+              },
             },
           },
         },
@@ -136,10 +136,10 @@ export async function getFeaturedCategories(limit: number = 4) {
           products: {
             where: {
               isActive: true,
-              OR: [
-                { vendorId: null },
-                { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-              ],
+              NOT: {
+                vendorId: { not: null },
+                approvalStatus: { not: 'APPROVED' },
+              },
             },
           },
         },
