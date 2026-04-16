@@ -62,8 +62,8 @@ model UserProfile {
   // Vendor fields
   isVendor         Boolean       @default(false)
   vendorStatus     VendorStatus?
-  storeName        String?       @unique
-  storeSlug        String?       @unique
+  storeName        String?
+  storeSlug        String?
   storeDescription String?
   vendorSince      DateTime?
 

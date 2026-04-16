@@ -26,7 +26,7 @@ export async function getStoreBySlug(
   query: Omit<ProductQueryInput, 'vendorId'>,
 ): Promise<StorePageResult | null> {
   // Look up vendor by slug — must be active
-  const vendor = await prisma.userProfile.findUnique({
+  const vendor = await prisma.userProfile.findFirst({
     where: { storeSlug: slug },
     select: {
       userId: true,

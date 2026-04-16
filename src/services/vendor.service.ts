@@ -48,7 +48,7 @@ export async function registerVendor(userId: string, input: RegisterVendorInput)
   }
 
   // Check slug uniqueness
-  const slugTaken = await prisma.userProfile.findUnique({
+  const slugTaken = await prisma.userProfile.findFirst({
     where: { storeSlug: slug },
     select: { id: true },
   });
@@ -129,7 +129,7 @@ export async function updateVendorProfile(userId: string, input: UpdateVendorInp
 
     // Only check uniqueness if slug actually changed
     if (newSlug !== current.storeSlug) {
-      const slugTaken = await prisma.userProfile.findUnique({
+      const slugTaken = await prisma.userProfile.findFirst({
         where: { storeSlug: newSlug },
         select: { id: true },
       });
