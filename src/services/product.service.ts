@@ -12,21 +12,11 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
   const { page, limit, search, categoryId, categorySlug, minPrice, maxPrice, brand, rating, inStock, isFeatured, sortBy, vendorId } = query;
 
   // ── Build filter ──────────────────────────────────────────────
-  const where: Record<string, unknown> = { isActive: true };
-
-  // Exclude unapproved vendor products.
-  // This includes admin products (no vendorId) and approved vendor products.
-  // Uses NOT instead of OR to avoid Prisma MongoDB field-existence issues.
-  where.NOT = {
-    vendorId: { not: null },
-    approvalStatus: { not: 'APPROVED' },
-  };
+  const where: Record<string, unknown> = {};
 
   // Filter by specific vendor
   if (vendorId) {
     where.vendorId = vendorId;
-    where.approvalStatus = 'APPROVED';
-    delete where.NOT;
   }
 
   // Category by ID or slug
@@ -136,17 +126,8 @@ export async function getProductById(id: string) {
  * Falls back to latest active products if not enough featured ones exist.
  */
 export async function getFeaturedProducts(limit: number = 8) {
-  // Exclude unapproved vendor products; include admin + approved vendor products
-  const visibilityFilter = {
-    isActive: true,
-    NOT: {
-      vendorId: { not: null },
-      approvalStatus: { not: 'APPROVED' },
-    },
-  };
-
   const featured = await prisma.product.findMany({
-    where: { ...visibilityFilter, isFeatured: true },
+    where: { isFeatured: true },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -154,10 +135,9 @@ export async function getFeaturedProducts(limit: number = 8) {
 
   if (featured.length >= limit) return featured;
 
-  // Back-fill with latest active products
+  // Back-fill with remaining products
   const backfill = await prisma.product.findMany({
     where: {
-      ...visibilityFilter,
       id: { notIn: featured.map((p) => p.id) },
     },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
@@ -181,13 +161,8 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
 
   const related = await prisma.product.findMany({
     where: {
-      isActive: true,
       categoryId: product.categoryId,
       id: { not: productId },
-      NOT: {
-        vendorId: { not: null },
-        approvalStatus: { not: 'APPROVED' },
-      },
     },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
@@ -198,12 +173,7 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
   if (related.length < limit) {
     const backfill = await prisma.product.findMany({
       where: {
-        isActive: true,
         id: { notIn: [productId, ...related.map((r) => r.id)] },
-        NOT: {
-          vendorId: { not: null },
-          approvalStatus: { not: 'APPROVED' },
-        },
       },
       include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy: { avgRating: 'desc' },
@@ -221,17 +191,12 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
 export async function searchProducts(q: string, limit: number = 10) {
   return prisma.product.findMany({
     where: {
-      isActive: true,
       OR: [
         { name: { contains: q, mode: 'insensitive' } },
         { description: { contains: q, mode: 'insensitive' } },
         { brand: { contains: q, mode: 'insensitive' } },
         { tags: { hasSome: [q.toLowerCase()] } },
       ],
-      NOT: {
-        vendorId: { not: null },
-        approvalStatus: { not: 'APPROVED' },
-      },
     },
     include: { category: true },
     orderBy: { avgRating: 'desc' },
@@ -245,7 +210,7 @@ export async function searchProducts(q: string, limit: number = 10) {
 export async function getProductPriceRange() {
   const [result] = await prisma.product.aggregateRaw({
     pipeline: [
-      { $match: { isActive: true } },
+      { $match: {} },
       {
         $group: {
           _id: null,

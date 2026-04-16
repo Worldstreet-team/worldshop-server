@@ -16,15 +16,7 @@ export async function getAllCategories() {
     include: {
       _count: {
         select: {
-          products: {
-            where: {
-              isActive: true,
-              NOT: {
-                vendorId: { not: null },
-                approvalStatus: { not: 'APPROVED' },
-              },
-            },
-          },
+          products: true,
         },
       },
     },
@@ -53,7 +45,6 @@ export async function getCategoryBySlug(
   if (!category) return null;
 
   const where: Record<string, unknown> = {
-    isActive: true,
     categoryId: category.id,
   };
 
@@ -133,15 +124,7 @@ export async function getFeaturedCategories(limit: number = 4) {
     include: {
       _count: {
         select: {
-          products: {
-            where: {
-              isActive: true,
-              NOT: {
-                vendorId: { not: null },
-                approvalStatus: { not: 'APPROVED' },
-              },
-            },
-          },
+          products: true,
         },
       },
     },
