@@ -132,21 +132,38 @@ export async function getProductById(id: string) {
 
 /**
  * getFeaturedProducts — Returns featured products up to a limit.
+ * Falls back to latest active products if not enough featured ones exist.
  */
 export async function getFeaturedProducts(limit: number = 8) {
-  return prisma.product.findMany({
-    where: {
-      isActive: true,
-      isFeatured: true,
-      OR: [
-        { vendorId: null },
-        { vendorId: { not: null }, approvalStatus: 'APPROVED' },
-      ],
-    },
+  const visibilityFilter = {
+    isActive: true,
+    OR: [
+      { vendorId: null },
+      { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+    ],
+  };
+
+  const featured = await prisma.product.findMany({
+    where: { ...visibilityFilter, isFeatured: true },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit,
   });
+
+  if (featured.length >= limit) return featured;
+
+  // Back-fill with latest active products
+  const backfill = await prisma.product.findMany({
+    where: {
+      ...visibilityFilter,
+      id: { notIn: featured.map((p) => p.id) },
+    },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: limit - featured.length,
+  });
+
+  return [...featured, ...backfill];
 }
 
 /**

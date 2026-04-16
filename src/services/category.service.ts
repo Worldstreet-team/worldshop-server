@@ -13,7 +13,21 @@ import {
 export async function getAllCategories() {
   const categories = await prisma.category.findMany({
     where: { isActive: true },
-    include: { _count: { select: { products: true } } },
+    include: {
+      _count: {
+        select: {
+          products: {
+            where: {
+              isActive: true,
+              OR: [
+                { vendorId: null },
+                { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+              ],
+            },
+          },
+        },
+      },
+    },
     orderBy: { sortOrder: 'asc' },
   });
 
@@ -116,7 +130,21 @@ export async function getCategoryById(id: string) {
 export async function getFeaturedCategories(limit: number = 4) {
   const categories = await prisma.category.findMany({
     where: { isActive: true },
-    include: { _count: { select: { products: true } } },
+    include: {
+      _count: {
+        select: {
+          products: {
+            where: {
+              isActive: true,
+              OR: [
+                { vendorId: null },
+                { vendorId: { not: null }, approvalStatus: 'APPROVED' },
+              ],
+            },
+          },
+        },
+      },
+    },
     orderBy: { sortOrder: 'asc' },
     take: limit,
   });
