@@ -75,10 +75,25 @@ export async function signProductImages(
 
   return Promise.all(
     parsed.map(async (img) => {
-      // Always sign from cloudflareId (the R2 key). If absent, leave the image unchanged.
+      // Always sign from cloudflareId (the R2 key) when present.
       if (typeof img.cloudflareId === 'string' && img.cloudflareId) {
         return { ...img, url: await signR2Key(img.cloudflareId) };
       }
+
+      // Fallback: if url is an R2 presigned URL (or bare key), extract the key
+      // and re-sign it. This handles products created with a full presigned URL
+      // that has since expired, or bare R2 keys stored without cloudflareId.
+      if (typeof img.url === 'string' && img.url) {
+        const r2Key = resolveR2Key(img.url);
+        if (r2Key) {
+          try {
+            return { ...img, url: await signR2Key(r2Key) };
+          } catch {
+            // Signing failed — return the image as-is rather than dropping it
+          }
+        }
+      }
+
       return img;
     }),
   );
