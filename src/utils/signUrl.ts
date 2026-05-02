@@ -1,17 +1,16 @@
-/**
- * R2 Signed URL Utility
- *
- * Signs R2 object keys with presigned URLs for secure access.
- * - Only signs keys that look like R2 keys (no protocol prefix).
- * - Relative paths (starting with /) are left unchanged (local static files).
- * - Handles both bare R2 keys ("categories/abc.jpg") and full R2 https:// URLs
- *   (extracts path and signs it either way).
- */
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2Client, R2_BUCKET } from '../configs/r2Config';
 
 const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 604 800 — R2/S3 SigV4 maximum
+const CACHE_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 days — refresh before the 7-day AWS limit
+
+interface CacheEntry {
+  url: string;
+  expiresAt: number;
+}
+
+const urlCache = new Map<string, CacheEntry>();
 
 /**
  * Extract an R2 key from either a bare key or a full https:// R2 URL.
@@ -39,6 +38,18 @@ function resolveR2Key(value: string): string | null {
  * Accepts bare keys like "categories/abc.jpg" or full https:// R2 URLs.
  * Returns the original string unchanged only for relative paths ("/...").
  */
+async function signR2KeyUncached(
+  r2Key: string,
+  expiresIn: number = SEVEN_DAYS_SECONDS,
+): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: r2Key,
+  });
+
+  return getSignedUrl(r2Client, command, { expiresIn });
+}
+
 export async function signR2Key(
   key: string,
   expiresIn: number = SEVEN_DAYS_SECONDS,
@@ -46,12 +57,12 @@ export async function signR2Key(
   const r2Key = resolveR2Key(key);
   if (!r2Key) return key;
 
-  const command = new GetObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: r2Key,
-  });
+  const cached = urlCache.get(r2Key);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
 
-  return getSignedUrl(r2Client, command, { expiresIn });
+  const url = await signR2KeyUncached(r2Key, expiresIn);
+  urlCache.set(r2Key, { url, expiresAt: Date.now() + CACHE_TTL_MS });
+  return url;
 }
 
 /**
