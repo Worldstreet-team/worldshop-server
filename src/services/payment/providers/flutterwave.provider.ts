@@ -9,159 +9,121 @@ import type {
 import { globalLog as logger } from '../../../configs/loggerConfig';
 
 const FLW_SECRET_HASH = process.env.FLW_SECRET_HASH || '';
-const FLW_BASE_URL = process.env.FLW_ENVIRONMENT === 'production'
-  ? 'https://api.flutterwave.com'
-  : 'https://developersandbox-api.flutterwave.com';
-const FLW_AUTH_URL = 'https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token';
+const FLW_SECRET_KEY = process.env.FLW_SECRET_KEY || '';
+const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
 
-interface FlwTokenResponse {
-  access_token: string;
-  expires_in: number;
-}
-
-interface FlwChargeResponse {
+interface FlwInitResponse {
   status: string;
   message: string;
   data: {
-    id: string;
-    reference: string;
+    link: string;
+  };
+}
+
+interface FlwVerifyResponse {
+  status: string;
+  message: string;
+  data: {
+    id: number;
+    tx_ref: string;
+    flw_ref: string;
     amount: number;
     currency: string;
+    charged_amount: number;
     status: string;
-    next_action?: {
-      type: string;
-      redirect_url?: { url: string };
-    };
-    meta?: {
-      authorization?: { redirect?: string };
-    };
-    created_at?: string;
+    payment_type: string;
+    created_at: string;
+    meta?: Record<string, unknown>;
   };
 }
 
 interface FlwWebhookPayload {
-  type: string;
-  id?: string;
+  event: string;
   data: {
-    id?: string;
-    reference?: string;
+    id?: number;
+    tx_ref?: string;
+    flw_ref?: string;
     status?: string;
     amount?: number;
     currency?: string;
-    meta?: { checkoutSessionId?: string };
+    meta?: Record<string, unknown>;
   };
-}
-
-let cachedToken: { token: string; expiresAt: number } | null = null;
-
-async function getAccessToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
-    return cachedToken.token;
-  }
-
-  const clientId = process.env.FLW_CLIENT_ID;
-  const clientSecret = process.env.FLW_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    throw new Error('FLW_CLIENT_ID and FLW_CLIENT_SECRET environment variables are required');
-  }
-
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: 'client_credentials',
-  });
-
-  const response = await fetch(FLW_AUTH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Flutterwave auth failed: ${response.status} ${err}`);
-  }
-
-  const data = (await response.json()) as FlwTokenResponse;
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
-
-  return cachedToken.token;
 }
 
 export const flutterwavePaymentProvider: PaymentServiceInterface = {
   async initializePayment(params: InitPaymentParams): Promise<InitPaymentResult> {
-    const token = await getAccessToken();
-    const rawOrderNumbers = params.metadata?.orderNumbers as string[] | undefined;
-    const transactionRef = rawOrderNumbers?.[0] || `WS-PAY-${Date.now()}`;
+    if (!FLW_SECRET_KEY) {
+      throw new Error('FLW_SECRET_KEY environment variable is required');
+    }
 
-    const chargeBody = {
-      reference: transactionRef,
+    const rawOrderNumbers = params.metadata?.orderNumbers as string[] | undefined;
+    const txRef = rawOrderNumbers?.[0] || `WS-PAY-${Date.now()}`;
+
+    const body = {
+      tx_ref: txRef,
       amount: params.amount,
       currency: params.currency,
-      redirect_url: `${params.metadata?.redirectBase || process.env.CLIENT_URL || ''}/checkout/callback`,
-      meta: {
-        checkoutSessionId: params.checkoutSessionId,
-      },
+      redirect_url: `${process.env.CLIENT_URL || ''}/checkout/callback`,
       customer: {
         email: params.userEmail,
       },
+      meta: {
+        checkoutSessionId: params.checkoutSessionId,
+        ...params.metadata,
+      },
     };
 
-    const response = await fetch(`${FLW_BASE_URL}/charges`, {
+    const response = await fetch(`${FLW_BASE_URL}/payments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${FLW_SECRET_KEY}`,
       },
-      body: JSON.stringify(chargeBody),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      throw new Error(`Flutterwave charge creation failed: ${response.status} ${err}`);
+      throw new Error(`Flutterwave init failed: ${response.status} ${err}`);
     }
 
-    const data = (await response.json()) as FlwChargeResponse;
+    const json = (await response.json()) as FlwInitResponse;
+    const link = json.data?.link;
 
-    let redirectUrl: string;
-    if (data.data.next_action?.redirect_url?.url) {
-      redirectUrl = data.data.next_action.redirect_url.url;
-    } else if (data.data.meta?.authorization?.redirect) {
-      redirectUrl = data.data.meta.authorization.redirect;
-    } else {
-      redirectUrl = `${FLW_BASE_URL}/pay/${transactionRef}`;
+    if (!link) {
+      throw new Error('Flutterwave did not return a payment link');
     }
 
     return {
-      transactionRef,
-      action: { type: 'redirect', url: redirectUrl },
+      transactionRef: txRef,
+      action: { type: 'redirect', url: link },
     };
   },
 
   async verifyPayment(transactionRef: string): Promise<VerifyPaymentResult> {
-    const token = await getAccessToken();
+    if (!FLW_SECRET_KEY) {
+      throw new Error('FLW_SECRET_KEY environment variable is required');
+    }
 
-    const response = await fetch(`${FLW_BASE_URL}/charges/${encodeURIComponent(transactionRef)}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const url = `${FLW_BASE_URL}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(transactionRef)}`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${FLW_SECRET_KEY}` },
     });
 
     if (!response.ok) {
       throw new Error(`Flutterwave verification failed: ${response.status}`);
     }
 
-    const data = (await response.json()) as FlwChargeResponse;
+    const json = (await response.json()) as FlwVerifyResponse;
+    const data = json.data;
 
     return {
-      status: data.data.status === 'succeeded' ? 'success'
-        : data.data.status === 'failed' ? 'failed'
+      status: data?.status === 'successful' ? 'success'
+        : data?.status === 'failed' ? 'failed'
         : 'pending',
-      transactionRef: data.data.reference || transactionRef,
-      amount: data.data.amount || 0,
-      paidAt: data.data.created_at || '',
+      transactionRef: data?.tx_ref || transactionRef,
+      amount: data?.amount || 0,
+      paidAt: data?.created_at || '',
       orders: [],
     };
   },
@@ -170,32 +132,33 @@ export const flutterwavePaymentProvider: PaymentServiceInterface = {
     if (FLW_SECRET_HASH) {
       const expected = createHmac('sha256', FLW_SECRET_HASH)
         .update(rawBody)
-        .digest('base64');
+        .digest('hex');
       if (signature !== expected) {
         logger.warn('[Flutterwave Webhook] Invalid signature — rejecting payload');
         return { status: 'ignored' };
       }
     }
 
-    let body: FlwWebhookPayload;
+    let payload: FlwWebhookPayload;
     try {
-      body = JSON.parse(rawBody);
+      payload = JSON.parse(rawBody);
     } catch {
       return { status: 'ignored' };
     }
 
-    if (body.type !== 'charge.completed') {
+    if (payload.event !== 'charge.completed') {
       return { status: 'ignored' };
     }
 
-    const { data } = body;
-    if (!data.reference) {
+    const data = payload.data;
+    if (!data?.tx_ref) {
       return { status: 'ignored' };
     }
 
-    const checkoutSessionId = data.meta?.checkoutSessionId || '';
+    const checkoutSessionId =
+      (data.meta?.checkoutSessionId as string) || '';
 
-    if (data.status === 'succeeded') {
+    if (data.status === 'successful') {
       return { status: 'completed', checkoutSessionId };
     }
 

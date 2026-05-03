@@ -485,18 +485,17 @@ export async function handleWebhook(
     ]);
 
     for (const order of orders) {
-      try {
-        await sendReceiptForOrder(
-          payment.id,
-          order.id,
-          paidAt.toISOString(),
-        );
-      } catch (err) {
+      // Fire-and-forget receipts — webhook must respond quickly
+      void sendReceiptForOrder(
+        payment.id,
+        order.id,
+        paidAt.toISOString(),
+      ).catch((err) => {
         logger.error('[Email] Failed to send receipt for order', {
           orderId: order.id,
           error: (err as Error).message,
         });
-      }
+      });
 
       if (order.vendorId) {
         try {

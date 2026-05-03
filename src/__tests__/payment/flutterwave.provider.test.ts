@@ -1,25 +1,32 @@
 import { describe, it, expect } from 'vitest';
+import { createHmac } from 'crypto';
 import { PaymentProvider } from '../../../generated/prisma';
 import { getPaymentProvider } from '../../services/payment/payment.service';
+
+function signV3Webhook(body: string): string {
+  const secret = process.env.FLW_SECRET_HASH || '';
+  if (!secret) return '';
+  return createHmac('sha256', secret).update(body).digest('hex');
+}
 
 describe('flutterwave provider', () => {
   it('Flutterwave provider is registered and handles webhooks', async () => {
     const provider = getPaymentProvider(PaymentProvider.FLUTTERWAVE);
 
     const webhookBody = JSON.stringify({
-      type: 'charge.completed',
-      id: 'wbk_abc',
+      event: 'charge.completed',
       data: {
-        id: 'chg_123',
-        reference: 'flw-ref-456',
-        status: 'succeeded',
+        id: 12345,
+        tx_ref: 'flw-ref-456',
+        flw_ref: 'FLW123456',
+        status: 'successful',
         amount: 5000,
         currency: 'NGN',
         meta: { checkoutSessionId: 'session-abc' },
       },
     });
 
-    const result = await provider.handleWebhook(webhookBody, 'fw-signature');
+    const result = await provider.handleWebhook(webhookBody, signV3Webhook(webhookBody));
     expect(result.status).toBe('completed');
     expect(result.checkoutSessionId).toBe('session-abc');
   });
@@ -28,11 +35,11 @@ describe('flutterwave provider', () => {
     const provider = getPaymentProvider(PaymentProvider.FLUTTERWAVE);
 
     const webhookBody = JSON.stringify({
-      type: 'transfer.completed',
-      data: { id: 'trf_123' },
+      event: 'transfer.completed',
+      data: { id: 999 },
     });
 
-    const result = await provider.handleWebhook(webhookBody, 'sig');
+    const result = await provider.handleWebhook(webhookBody, signV3Webhook(webhookBody));
     expect(result.status).toBe('ignored');
   });
 
@@ -40,11 +47,11 @@ describe('flutterwave provider', () => {
     const provider = getPaymentProvider(PaymentProvider.FLUTTERWAVE);
 
     const webhookBody = JSON.stringify({
-      type: 'charge.completed',
-      id: 'wbk_def',
+      event: 'charge.completed',
       data: {
-        id: 'chg_456',
-        reference: 'flw-ref-789',
+        id: 67890,
+        tx_ref: 'flw-ref-789',
+        flw_ref: 'FLW678901',
         status: 'failed',
         amount: 5000,
         currency: 'NGN',
@@ -52,7 +59,7 @@ describe('flutterwave provider', () => {
       },
     });
 
-    const result = await provider.handleWebhook(webhookBody, 'sig');
+    const result = await provider.handleWebhook(webhookBody, signV3Webhook(webhookBody));
     expect(result.status).toBe('failed');
     expect(result.checkoutSessionId).toBe('session-def');
   });
