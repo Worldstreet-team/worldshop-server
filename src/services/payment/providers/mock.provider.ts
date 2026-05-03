@@ -15,7 +15,7 @@ function generateTransactionRef(): string {
 }
 
 export const mockPaymentProvider: PaymentServiceInterface = {
-  initializePayment(params: InitPaymentParams): InitPaymentResult {
+  async initializePayment(params: InitPaymentParams): Promise<InitPaymentResult> {
     const transactionRef = generateTransactionRef();
     const clientUrl = CLIENT_URL || 'http://localhost:5173';
     const redirectUrl = `${clientUrl}/checkout/mock-payment?session=${params.checkoutSessionId}&ref=${transactionRef}`;
@@ -26,11 +26,11 @@ export const mockPaymentProvider: PaymentServiceInterface = {
     };
   },
 
-  verifyPayment(): VerifyPaymentResult {
+  async verifyPayment(): Promise<VerifyPaymentResult> {
     throw new Error('Mock provider verifyPayment should not be called directly — use orchestrator');
   },
 
-  handleWebhook(rawBody: string, signature: string): WebhookResult {
+  async handleWebhook(rawBody: string, signature: string): Promise<WebhookResult> {
     if (PAYMENT_WEBHOOK_SECRET) {
       const expected = createHmac('sha256', PAYMENT_WEBHOOK_SECRET)
         .update(rawBody)

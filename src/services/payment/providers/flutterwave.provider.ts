@@ -95,7 +95,8 @@ async function getAccessToken(): Promise<string> {
 export const flutterwavePaymentProvider: PaymentServiceInterface = {
   async initializePayment(params: InitPaymentParams): Promise<InitPaymentResult> {
     const token = await getAccessToken();
-    const transactionRef = params.metadata?.orderNumbers?.[0] as string || `WS-PAY-${Date.now()}`;
+    const rawOrderNumbers = params.metadata?.orderNumbers as string[] | undefined;
+    const transactionRef = rawOrderNumbers?.[0] || `WS-PAY-${Date.now()}`;
 
     const chargeBody = {
       reference: transactionRef,
