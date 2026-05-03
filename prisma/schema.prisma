@@ -321,6 +321,12 @@ model OrderStatusHistory {
 // Amounts stored in NGN (₦).
 // ============================================
 
+enum PaymentProvider {
+  MOCK
+  FLUTTERWAVE
+  CRYPTO
+}
+
 enum PaymentStatus {
   PENDING    // Awaiting payment
   COMPLETED  // Payment successful
@@ -335,7 +341,7 @@ model Payment {
   amount            Float                            // Amount in NGN
   currency          String        @default("NGN")
   status            PaymentStatus @default(PENDING)
-  provider          String        @default("mock")
+  provider          PaymentProvider @default(MOCK)
   transactionRef    String?       @unique            // Unique transaction reference
   providerData      Json?                            // Provider-specific data
   metadata          Json?

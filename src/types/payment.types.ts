@@ -2,12 +2,12 @@
  * Payment types for the backend.
  * Provider-agnostic payment service interface.
  */
-import type { PaymentStatus } from '../../generated/prisma';
+import type { PaymentStatus, PaymentProvider } from '../../generated/prisma';
 
-export { PaymentStatus } from '../../generated/prisma';
+export { PaymentStatus, PaymentProvider } from '../../generated/prisma';
 
 // ─── Provider types ─────────────────────────────────────────────
-export type PaymentProviderType = 'mock' | 'crypto';
+export type PaymentProviderType = PaymentProvider;
 
 export type PaymentAction =
   | { type: 'redirect'; url: string }
@@ -21,7 +21,7 @@ export interface PaymentResponse {
   amount: number;
   currency: string;
   status: PaymentStatus;
-  provider: string;
+  provider: PaymentProviderType;
   transactionRef: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +57,7 @@ export interface VerifyPaymentResult {
 
 export interface WebhookResult {
   status: 'completed' | 'failed' | 'ignored';
+  checkoutSessionId?: string;
 }
 
 export interface PaymentServiceInterface {

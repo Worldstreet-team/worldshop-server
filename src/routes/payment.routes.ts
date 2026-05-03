@@ -4,10 +4,9 @@ import { requireAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
 
-// Verify payment after redirect (requires auth)
 router.get('/verify/:ref', requireAuth, paymentController.verify);
 
-// Mock payment webhook (no auth — called by mock payment page)
-router.post('/webhook', paymentController.webhook);
+router.post('/webhook/mock', paymentController.mockWebhook);
+router.post('/webhook/flutterwave', paymentController.flutterwaveWebhook);
 
 export default router;

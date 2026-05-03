@@ -412,7 +412,7 @@ describe('mock payment service', () => {
     });
     expect(payment).toBeTruthy();
     expect(payment!.status).toBe(PaymentStatus.PENDING);
-    expect(payment!.provider).toBe('mock');
+    expect(payment!.provider).toBe('MOCK');
   });
 
   it('should confirm payment via webhook and mark orders PAID', async () => {

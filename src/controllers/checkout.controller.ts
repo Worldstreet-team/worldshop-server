@@ -105,7 +105,7 @@ export const initializePayment = catchAsync(
       });
     }
 
-    const { checkoutSessionId } = req.body;
+    const { checkoutSessionId, provider } = req.body;
 
     if (!checkoutSessionId) {
       return res.status(400).json({
@@ -118,6 +118,7 @@ export const initializePayment = catchAsync(
       userId,
       userEmail,
       checkoutSessionId,
+      provider || 'MOCK',
     );
 
     res.status(200).json({
