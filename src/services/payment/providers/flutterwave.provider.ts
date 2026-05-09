@@ -130,10 +130,13 @@ export const flutterwavePaymentProvider: PaymentServiceInterface = {
 
   async handleWebhook(rawBody: string, signature: string): Promise<WebhookResult> {
     if (FLW_SECRET_HASH) {
-      const expected = createHmac('sha256', FLW_SECRET_HASH)
+      const expectedHex = createHmac('sha256', FLW_SECRET_HASH)
         .update(rawBody)
         .digest('hex');
-      if (signature !== expected) {
+      const expectedBase64 = createHmac('sha256', FLW_SECRET_HASH)
+        .update(rawBody)
+        .digest('base64');
+      if (signature !== expectedHex && signature !== expectedBase64) {
         logger.warn('[Flutterwave Webhook] Invalid signature — rejecting payload');
         return { status: 'ignored' };
       }

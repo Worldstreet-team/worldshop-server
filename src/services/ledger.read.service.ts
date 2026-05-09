@@ -100,7 +100,7 @@ export async function getVendorAnalytics(
   // Count paid vendor orders in period
   const orderWhere: Record<string, unknown> = {
     vendorId,
-    status: 'PAID',
+    status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] },
   };
   if (createdAt) orderWhere.paidAt = createdAt;
 
@@ -111,11 +111,11 @@ export async function getVendorAnalytics(
   if (createdAt) entryWhere.createdAt = createdAt;
 
   const saleEntries = await prisma.ledgerEntry.findMany({
-    where: { ...entryWhere, type: LedgerEntryType.SALE },
+    where: { ...entryWhere, type: { in: [LedgerEntryType.SALE, LedgerEntryType.REFUND] } },
     select: { amount: true },
   });
   const commissionEntries = await prisma.ledgerEntry.findMany({
-    where: { ...entryWhere, type: LedgerEntryType.COMMISSION },
+    where: { ...entryWhere, type: { in: [LedgerEntryType.COMMISSION, LedgerEntryType.COMMISSION_REVERSAL] } },
     select: { amount: true },
   });
 
@@ -128,13 +128,13 @@ export async function getVendorAnalytics(
 
   // Earnings over time
   const allSaleEntries = await prisma.ledgerEntry.findMany({
-    where: { vendorId, type: LedgerEntryType.SALE, ...(createdAt ? { createdAt } : {}) },
+    where: { vendorId, type: { in: [LedgerEntryType.SALE, LedgerEntryType.REFUND] }, ...(createdAt ? { createdAt } : {}) },
     orderBy: { createdAt: 'asc' },
     select: { amount: true, createdAt: true },
   });
 
   const allCommEntries = await prisma.ledgerEntry.findMany({
-    where: { vendorId, type: LedgerEntryType.COMMISSION, ...(createdAt ? { createdAt } : {}) },
+    where: { vendorId, type: { in: [LedgerEntryType.COMMISSION, LedgerEntryType.COMMISSION_REVERSAL] }, ...(createdAt ? { createdAt } : {}) },
     orderBy: { createdAt: 'asc' },
     select: { amount: true, createdAt: true },
   });
@@ -183,10 +183,10 @@ export async function getCommissionReport(
   if (createdAt) entryWhere.createdAt = createdAt;
 
   const saleEntries = await prisma.ledgerEntry.findMany({
-    where: { ...entryWhere, type: LedgerEntryType.SALE },
+    where: { ...entryWhere, type: { in: [LedgerEntryType.SALE, LedgerEntryType.REFUND] } },
   });
   const commissionEntries = await prisma.ledgerEntry.findMany({
-    where: { ...entryWhere, type: LedgerEntryType.COMMISSION },
+    where: { ...entryWhere, type: { in: [LedgerEntryType.COMMISSION, LedgerEntryType.COMMISSION_REVERSAL] } },
   });
 
   // Group by vendor
@@ -290,8 +290,8 @@ function bucketEntries(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, data]) => ({
       date,
-      sales: Math.round(data.sales * 100) / 100,
+      sales: Math.round((data.sales + data.commission) * 100) / 100,
       commission: Math.round(data.commission * 100) / 100,
-      net: Math.round((data.sales - data.commission) * 100) / 100,
+      net: Math.round(data.sales * 100) / 100,
     }));
 }

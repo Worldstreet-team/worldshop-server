@@ -1,8 +1,15 @@
 import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
-import type { RegisterVendorInput, UpdateVendorInput } from '../validators/vendor.validator';
+import { Prisma } from '../../generated/prisma';
+import type { RegisterVendorInput, UpdateVendorInput, WithdrawalAccountInput } from '../validators/vendor.validator';
 
-const RESERVED_SLUGS = ['admin', 'vendor', 'account', 'auth', 'store', 'api', 'checkout', 'cart'];
+const DEFAULT_RESERVED_SLUGS = ['admin', 'vendor', 'account', 'auth', 'store', 'api', 'checkout', 'cart'];
+
+function getReservedSlugs(): string[] {
+  const env = process.env.RESERVED_STORE_SLUGS;
+  if (env) return env.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return DEFAULT_RESERVED_SLUGS;
+}
 
 /**
  * Convert a store name to a URL-safe slug.
@@ -43,33 +50,39 @@ export async function registerVendor(userId: string, input: RegisterVendorInput)
   }
 
   // Check reserved slugs
-  if (RESERVED_SLUGS.includes(slug)) {
+  if (getReservedSlugs().includes(slug)) {
     throw createError(400, `The store name "${input.storeName}" is reserved. Please choose a different name.`);
   }
 
-  // Check slug uniqueness
+  // Pre-flight uniqueness check (defense-in-depth before DB constraint)
   const slugTaken = await prisma.userProfile.findFirst({
     where: { storeSlug: slug },
     select: { id: true },
   });
-
   if (slugTaken) {
     throw createError(409, `A store with a similar name already exists. Please choose a different name.`);
   }
 
-  const profile = await prisma.userProfile.update({
-    where: { userId },
-    data: {
-      isVendor: true,
-      vendorStatus: 'ACTIVE',
-      storeName: input.storeName.trim(),
-      storeSlug: slug,
-      storeDescription: input.storeDescription?.trim() || null,
-      vendorSince: new Date(),
-    },
-  });
+  try {
+    const profile = await prisma.userProfile.update({
+      where: { userId },
+      data: {
+        isVendor: true,
+        vendorStatus: 'ACTIVE',
+        storeName: input.storeName.trim(),
+        storeSlug: slug,
+        storeDescription: input.storeDescription?.trim() || null,
+        vendorSince: new Date(),
+      },
+    });
 
-  return profile;
+    return profile;
+  } catch (err: any) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw createError(409, `A store with a similar name already exists. Please choose a different name.`);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -123,24 +136,17 @@ export async function updateVendorProfile(userId: string, input: UpdateVendorInp
       throw createError(400, 'Store name must contain at least one alphanumeric character');
     }
 
-    if (RESERVED_SLUGS.includes(newSlug)) {
+    if (getReservedSlugs().includes(newSlug)) {
       throw createError(400, `The store name "${input.storeName}" is reserved. Please choose a different name.`);
     }
 
-    // Only check uniqueness if slug actually changed
+    // Only update slug if it actually changed
     if (newSlug !== current.storeSlug) {
-      const slugTaken = await prisma.userProfile.findFirst({
-        where: { storeSlug: newSlug },
-        select: { id: true },
-      });
-
-      if (slugTaken) {
-        throw createError(409, `A store with a similar name already exists. Please choose a different name.`);
-      }
+      updateData.storeName = newName;
+      updateData.storeSlug = newSlug;
+    } else {
+      updateData.storeName = newName;
     }
-
-    updateData.storeName = newName;
-    updateData.storeSlug = newSlug;
   }
 
   if (input.storeDescription !== undefined) {
@@ -152,10 +158,79 @@ export async function updateVendorProfile(userId: string, input: UpdateVendorInp
     return getVendorProfile(userId);
   }
 
-  const profile = await prisma.userProfile.update({
+  try {
+    const profile = await prisma.userProfile.update({
+      where: { userId },
+      data: updateData,
+    });
+
+    return profile;
+  } catch (err: any) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw createError(409, `A store with a similar name already exists. Please choose a different name.`);
+    }
+    throw err;
+  }
+}
+
+function normalizeName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function accountNameMatchesProfile(
+  accountName: string,
+  profile: { firstName: string; lastName: string },
+): boolean {
+  const submitted = normalizeName(accountName);
+  const firstLast = normalizeName(`${profile.firstName} ${profile.lastName}`);
+  const lastFirst = normalizeName(`${profile.lastName} ${profile.firstName}`);
+  return submitted === firstLast || submitted === lastFirst;
+}
+
+export async function getWithdrawalAccount(userId: string) {
+  await getVendorProfile(userId);
+  return prisma.vendorWithdrawalAccount.findUnique({
+    where: { vendorId: userId },
+  });
+}
+
+export async function upsertWithdrawalAccount(userId: string, input: WithdrawalAccountInput) {
+  const profile = await prisma.userProfile.findUnique({
     where: { userId },
-    data: updateData,
+    select: {
+      isVendor: true,
+      firstName: true,
+      lastName: true,
+    },
   });
 
-  return profile;
+  if (!profile?.isVendor) {
+    throw createError(403, 'Vendor access required');
+  }
+
+  if (!accountNameMatchesProfile(input.accountName, profile)) {
+    throw createError(400, 'Withdrawal account name must match your profile name');
+  }
+
+  return prisma.vendorWithdrawalAccount.upsert({
+    where: { vendorId: userId },
+    update: {
+      bankName: input.bankName.trim(),
+      accountNumber: input.accountNumber.trim(),
+      accountName: input.accountName.trim(),
+      isVerified: true,
+      verifiedAt: new Date(),
+    },
+    create: {
+      vendorId: userId,
+      bankName: input.bankName.trim(),
+      accountNumber: input.accountNumber.trim(),
+      accountName: input.accountName.trim(),
+      isVerified: true,
+      verifiedAt: new Date(),
+    },
+  });
 }

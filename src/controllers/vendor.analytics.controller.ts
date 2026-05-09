@@ -1,6 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import catchAsync from '../utils/catchAsync';
 import * as ledgerRead from '../services/ledger.read.service';
+import { z } from 'zod';
+
+const analyticsQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+const earningsQuerySchema = z.object({
+  type: z.string().optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  sort: z.enum(['asc', 'desc']).optional(),
+});
 
 /**
  * GET /api/v1/vendor/analytics/summary
@@ -8,7 +23,7 @@ import * as ledgerRead from '../services/ledger.read.service';
  */
 export const getSummary = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
-  const { from, to } = req.query as { from?: string; to?: string };
+  const { from, to } = analyticsQuerySchema.parse(req.query);
 
   const analytics = await ledgerRead.getVendorAnalytics({ vendorId, from, to });
 
@@ -24,21 +39,14 @@ export const getSummary = catchAsync(async (req: Request, res: Response, _next: 
  */
 export const getEarnings = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
   const vendorId = req.user!.id;
-  const { type, from, to, page, limit, sort } = req.query as {
-    type?: string;
-    from?: string;
-    to?: string;
-    page?: string;
-    limit?: string;
-    sort?: 'asc' | 'desc';
-  };
+  const { type, from, to, page, limit, sort } = earningsQuerySchema.parse(req.query);
 
   const result = await ledgerRead.getVendorLedger(vendorId, {
     type,
     from,
     to,
-    page: page ? parseInt(page, 10) : undefined,
-    limit: limit ? parseInt(limit, 10) : undefined,
+    page,
+    limit,
     sort,
   });
 

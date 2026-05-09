@@ -7,6 +7,8 @@ import type { Product, Category, ProductVariant, DigitalAsset } from '../../gene
 import type {
   AdminCreateProductInput,
   AdminUpdateProductInput,
+  AdminProductApprovalInput,
+  AdminProductVisibilityInput,
   VendorCreateProductInput,
   VendorUpdateProductInput,
   ProductListQueryInput,
@@ -430,4 +432,46 @@ export async function getDashboardStats(page = 1, limit = 15) {
 export async function hardDeleteProduct(id: string) {
   await prisma.productVariant.deleteMany({ where: { productId: id } });
   return prisma.product.delete({ where: { id } });
+}
+
+export async function updateProductVisibility(
+  productId: string,
+  input: AdminProductVisibilityInput,
+): Promise<ProductWithRelations> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true },
+  });
+
+  if (!product) throw createError(404, 'Product not found');
+
+  return prisma.product.update({
+    where: { id: productId },
+    data: { isActive: input.isActive },
+    include: ROLE_RULES.admin.includeClause,
+  }) as unknown as Promise<ProductWithRelations>;
+}
+
+export async function updateProductApproval(
+  productId: string,
+  input: AdminProductApprovalInput,
+): Promise<ProductWithRelations> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, vendorId: true },
+  });
+
+  if (!product) throw createError(404, 'Product not found');
+  if (!product.vendorId) {
+    throw createError(400, 'Approval status is only used for vendor products');
+  }
+
+  return prisma.product.update({
+    where: { id: productId },
+    data: {
+      approvalStatus: input.approvalStatus,
+      isActive: input.approvalStatus === 'APPROVED',
+    },
+    include: ROLE_RULES.admin.includeClause,
+  }) as unknown as Promise<ProductWithRelations>;
 }

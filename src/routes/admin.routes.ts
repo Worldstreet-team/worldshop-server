@@ -6,6 +6,7 @@ import * as adminCategoryController from '../controllers/admin.category.controll
 import * as adminOrderController from '../controllers/admin.order.controller';
 import * as adminInventoryController from '../controllers/admin.inventory.controller';
 import * as adminVendorController from '../controllers/admin.vendor.controller';
+import * as adminUserController from '../controllers/admin.user.controller';
 import * as uploadController from '../controllers/upload.controller';
 import { uploadProductImages, uploadCategoryImage, uploadDigitalFiles, handleMulterError } from '../middlewares/upload.middleware';
 
@@ -36,6 +37,8 @@ router.get('/products', productController.adminListProducts);
 router.get('/products/:id', productController.adminGetProduct);
 router.post('/products', productController.adminCreateProduct);
 router.put('/products/:id', productController.adminUpdateProduct);
+router.patch('/products/:id/visibility', productController.adminUpdateProductVisibility);
+router.patch('/products/:id/approval', productController.adminUpdateProductApproval);
 router.delete('/products/:id', productController.adminDeleteProduct);
 
 // ─── Digital Assets ─────────────────────────────────────────────
@@ -62,6 +65,13 @@ router.get('/vendors', adminVendorController.listVendors);
 router.get('/vendors/:id', adminVendorController.getVendor);
 router.patch('/vendors/:id/status', adminVendorController.updateVendorStatus);
 router.get('/vendors/:id/products', adminVendorController.getVendorProducts);
+
+router.get('/withdrawals', adminVendorController.listWithdrawalRequests);
+router.get('/withdrawals/:id', adminVendorController.getWithdrawalRequest);
+router.patch('/withdrawals/:id/status', adminVendorController.updateWithdrawalRequestStatus);
+
+router.get('/users', adminUserController.listUsers);
+router.patch('/users/:id/role', adminUserController.updateUserRole);
 
 // ─── Reports ────────────────────────────────────────────────────
 router.get('/reports/commission', adminVendorController.getCommissionReport);

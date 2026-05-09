@@ -52,7 +52,13 @@ app.use(cors({
 app.use(clerkMiddleware());
 
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    if ((req as Request).originalUrl === '/api/v1/payments/webhook/flutterwave') {
+      (req as Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+    }
+  },
+}));
 
 // Routes
 app.get('/', async (req: Request, res: Response, next: NextFunction) => {

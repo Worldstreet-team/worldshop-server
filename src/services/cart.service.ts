@@ -10,6 +10,7 @@ import type {
   UpdateCartItemInput,
 } from '../validators/cart.validator';
 import { signProductImages } from '../utils/signUrl';
+import { assertProductPurchasable } from './product-eligibility.service';
 
 /**
  * Get or create a cart by userId (authenticated) or sessionId (guest).
@@ -119,15 +120,17 @@ export async function addToCart(
 
   const { productId, variantId, quantity } = input;
 
-  // Validate product exists and is active
+  // Validate product exists and can be purchased
   const product = await prisma.product.findFirst({
-    where: { id: productId, isActive: true },
+    where: { id: productId },
     include: { variants: true },
   });
 
   if (!product) {
     throw createError(404, 'Product not found');
   }
+
+  await assertProductPurchasable(product);
 
   // W3 FIX: Prevent vendors from adding their own products to cart
   if (userId && product.vendorId === userId) {
@@ -144,8 +147,9 @@ export async function addToCart(
   }
 
   // Check stock
+  const isDigital = product.type === 'DIGITAL';
   const availableStock = variant?.stock ?? product.stock;
-  if (availableStock < quantity) {
+  if (!isDigital && availableStock < quantity) {
     throw createError(400, `Only ${availableStock} items available in stock`);
   }
 
@@ -186,7 +190,7 @@ export async function addToCart(
   if (existingItem) {
     // Update quantity
     const newQuantity = existingItem.quantity + quantity;
-    if (newQuantity > availableStock) {
+    if (!isDigital && newQuantity > availableStock) {
       throw createError(400, `Only ${availableStock} items available in stock`);
     }
 
@@ -239,6 +243,8 @@ export async function updateCartItem(
     throw createError(404, 'Cart item not found');
   }
 
+  await assertProductPurchasable(cartItem.product);
+
   // Verify cart ownership
   const isOwner = userId
     ? cartItem.cart.userId === userId
@@ -249,8 +255,9 @@ export async function updateCartItem(
   }
 
   // Check stock
+  const isDigital = cartItem.product.type === 'DIGITAL';
   const availableStock = cartItem.variant?.stock ?? cartItem.product.stock;
-  if (quantity > availableStock) {
+  if (!isDigital && quantity > availableStock) {
     throw createError(400, `Only ${availableStock} items available in stock`);
   }
 
@@ -381,13 +388,23 @@ export async function mergeCart(
 
   // Merge items from guest cart
   for (const guestItem of guestCart.items) {
+    try {
+      await assertProductPurchasable(guestItem.product);
+    } catch {
+      cappedItems.push(guestItem.product.name);
+      continue;
+    }
+
     const existingItem = userItems.find(
       (item) =>
         item.productId === guestItem.productId &&
         item.variantId === guestItem.variantId,
     );
 
-    const availableStock = guestItem.variant?.stock ?? guestItem.product.stock;
+    const isDigital = guestItem.product.type === 'DIGITAL';
+    const availableStock = isDigital
+      ? Number.MAX_SAFE_INTEGER
+      : guestItem.variant?.stock ?? guestItem.product.stock;
 
     if (existingItem) {
       // Merge quantities (capped at available stock)

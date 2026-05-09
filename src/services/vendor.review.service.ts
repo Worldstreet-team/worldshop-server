@@ -2,6 +2,25 @@ import prisma from '../configs/prismaConfig';
 import type { ReviewResponse } from '../types/review.types';
 import { buildPagination } from '../utils/pagination';
 
+interface ReviewWithProduct {
+  id: string;
+  productId: string;
+  userId: string;
+  userName: string;
+  rating: number;
+  title: string | null;
+  comment: string;
+  isVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  product: {
+    id: string;
+    name: string;
+    slug: string;
+    images: unknown;
+  } | null;
+}
+
 interface VendorReviewsQuery {
   page?: number;
   limit?: number;
@@ -61,7 +80,7 @@ export async function getVendorReviews(
       include: {
         product: { select: { id: true, name: true, slug: true, images: true } },
       },
-    }),
+    }) as Promise<ReviewWithProduct[]>,
     prisma.review.count({ where }),
   ]);
 
@@ -69,8 +88,8 @@ export async function getVendorReviews(
     data: reviews.map((r) => ({
       id: r.id,
       productId: r.productId,
-      productName: (r as any).product?.name ?? null,
-      productSlug: (r as any).product?.slug ?? null,
+      productName: r.product?.name ?? null,
+      productSlug: r.product?.slug ?? null,
       userId: r.userId,
       userName: r.userName,
       rating: r.rating,

@@ -48,6 +48,15 @@ export function requireVendor(req: Request, res: Response, next: NextFunction): 
       });
       return;
     }
+    // Block financial endpoints for suspended vendors
+    const blockedPathsForSuspended = ['/analytics', '/balance'];
+    if (blockedPathsForSuspended.some((p) => req.path.startsWith(p))) {
+      res.status(403).json({
+        success: false,
+        message: 'Your vendor account is suspended. Financial data is not accessible.',
+      });
+      return;
+    }
   }
 
   next();

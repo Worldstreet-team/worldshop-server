@@ -203,11 +203,21 @@ export async function generateDownloadUrl(
   // Generate signed URL
   const signedUrl = await signR2Key(asset.r2Key);
 
-  // Increment download count
-  await prisma.downloadRecord.update({
-    where: { id: downloadRecordId },
+  // Increment only if the record is still eligible; this prevents parallel
+  // requests from exceeding the download limit.
+  const incremented = await prisma.downloadRecord.updateMany({
+    where: {
+      id: downloadRecordId,
+      userId,
+      downloadCount: { lt: record.maxDownloads },
+      expiresAt: { gte: new Date() },
+    },
     data: { downloadCount: { increment: 1 } },
   });
+
+  if (incremented.count === 0) {
+    throw createError(409, 'Download is no longer available. Please refresh and try again.');
+  }
 
   return {
     downloadUrl: signedUrl,

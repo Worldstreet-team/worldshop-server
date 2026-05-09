@@ -39,7 +39,9 @@ export const mockWebhook = catchAsync(
 
 export const flutterwaveWebhook = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
-    const rawBody = JSON.stringify(req.body);
+    const rawBody =
+      (req as Request & { rawBody?: string }).rawBody ??
+      JSON.stringify(req.body);
     const signature = (req.headers['flutterwave-signature'] as string) || '';
 
     const result = await paymentService.handleWebhook(rawBody, signature, 'FLUTTERWAVE');

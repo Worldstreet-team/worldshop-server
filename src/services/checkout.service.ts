@@ -12,11 +12,102 @@ import type {
 } from '../types/order.types';
 import { signR2Key } from '../utils/signUrl';
 import { calculateShipping } from '../types/cart.types';
+import { globalLog as logger } from '../configs/loggerConfig';
+import { assertProductPurchasable } from './product-eligibility.service';
+
+const CHECKOUT_RESERVATION_MINUTES = Number(
+  process.env.CHECKOUT_RESERVATION_MINUTES || 60,
+);
 
 export function isDigitalOnlyCart(
   items: Array<{ product: { type?: string } }>,
 ): boolean {
   return items.every((item) => item.product.type === 'DIGITAL');
+}
+
+export async function releaseExpiredCheckoutSessions(
+  reservationMinutes = CHECKOUT_RESERVATION_MINUTES,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - reservationMinutes * 60 * 1000);
+  const expiredOrders = await prisma.order.findMany({
+    where: {
+      status: OrderStatus.CREATED,
+      checkoutSessionId: { not: null },
+      createdAt: { lt: cutoff },
+    },
+    select: { checkoutSessionId: true },
+    take: 200,
+  });
+
+  const checkoutSessionIds = [
+    ...new Set(
+      expiredOrders
+        .map((order) => order.checkoutSessionId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  let releasedCount = 0;
+
+  for (const checkoutSessionId of checkoutSessionIds) {
+    try {
+      releasedCount += await prisma.$transaction(async (tx) => {
+        const orders = await tx.order.findMany({
+          where: { checkoutSessionId, status: OrderStatus.CREATED },
+          include: {
+            items: {
+              include: { product: { select: { type: true } } },
+            },
+          },
+        });
+
+        let sessionReleased = 0;
+
+        for (const order of orders) {
+          const updated = await tx.order.updateMany({
+            where: { id: order.id, status: OrderStatus.CREATED },
+            data: { status: OrderStatus.CANCELLED },
+          });
+
+          if (updated.count === 0) continue;
+
+          await tx.orderStatusHistory.create({
+            data: {
+              orderId: order.id,
+              status: OrderStatus.CANCELLED,
+              note: 'Payment window expired',
+            },
+          });
+
+          for (const item of order.items) {
+            if (item.product.type === 'DIGITAL') continue;
+            if (item.variantId) {
+              await tx.productVariant.update({
+                where: { id: item.variantId },
+                data: { stock: { increment: item.quantity } },
+              });
+            } else {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { stock: { increment: item.quantity } },
+              });
+            }
+          }
+
+          sessionReleased += 1;
+        }
+
+        return sessionReleased;
+      });
+    } catch (err) {
+      logger.error('[Checkout] Failed to release expired reservation', {
+        checkoutSessionId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  return releasedCount;
 }
 
 // ─── Validate cart (kept for backward compat) ───────────────────
@@ -50,8 +141,10 @@ export async function validateCart(userId: string) {
     const price =
       item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
 
-    if (!item.product.isActive) {
-      issues.push(`${item.product.name} is no longer available`);
+    try {
+      await assertProductPurchasable(item.product);
+    } catch (err) {
+      issues.push((err as Error).message);
       continue;
     }
 
@@ -104,6 +197,7 @@ type CartItemWithProduct = {
     salePrice: number | null;
     stock: number;
     isActive: boolean;
+    approvalStatus: string;
     vendorId: string | null;
     images: unknown;
     stockKeepingUnit: string | null;
@@ -129,7 +223,7 @@ function computeSnapshotToken(
       const price =
         item.variant?.price ?? item.product.salePrice ?? item.product.basePrice;
       const stock = item.variant?.stock ?? item.product.stock;
-      return `${item.productId}:${item.variantId || ''}:${item.quantity}:${price}:${stock}:${item.product.isActive}`;
+      return `${item.productId}:${item.variantId || ''}:${item.quantity}:${price}:${stock}:${item.product.isActive}:${item.product.approvalStatus}`;
     })
     .sort()
     .join('|');
@@ -252,12 +346,14 @@ export async function previewCheckoutSession(
 
   // Validate each item
   for (const item of items) {
-    if (!item.product.isActive) {
+    try {
+      await assertProductPurchasable(item.product);
+    } catch (err) {
       issues.push({
         productId: item.productId,
         productName: item.product.name,
         reason: 'INACTIVE',
-        detail: `${item.product.name} is no longer available`,
+        detail: (err as Error).message,
       });
       continue;
     }
@@ -390,12 +486,7 @@ export async function confirmCheckoutSession(
   const createdOrders = await prisma.$transaction(async (tx) => {
     // Re-validate stock/availability inside the transaction
     for (const item of items) {
-      if (!item.product.isActive) {
-        throw createError(
-          400,
-          `${item.product.name} is no longer available`,
-        );
-      }
+      await assertProductPurchasable(item.product);
       if (item.product.type !== 'DIGITAL') {
         // Read fresh stock inside transaction to prevent race
         let currentStock: number;

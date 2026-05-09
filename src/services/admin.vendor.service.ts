@@ -65,21 +65,38 @@ export async function listVendors(query: AdminVendorListQuery = {}) {
     prisma.userProfile.count({ where }),
   ]);
 
-  // Enrich with product count and total earnings per vendor
-  const enriched = await Promise.all(
-    vendors.map(async (v) => {
-      const [productCount, balance] = await Promise.all([
-        prisma.product.count({ where: { vendorId: v.userId } }),
-        prisma.vendorBalance.findUnique({ where: { vendorId: v.userId } }),
-      ]);
+  // Enrich with product count and total earnings per vendor — batch queries to avoid N+1
+  const vendorIds = vendors.map((v) => v.userId);
 
-      return {
-        ...v,
-        productCount,
-        totalEarnings: balance?.totalEarned ?? 0,
-      };
+  const [productCounts, balances] = await Promise.all([
+    prisma.product.groupBy({
+      by: ['vendorId'],
+      where: { vendorId: { in: vendorIds } },
+      _count: { vendorId: true },
     }),
-  );
+    prisma.vendorBalance.findMany({
+      where: { vendorId: { in: vendorIds } },
+      select: { vendorId: true, totalEarned: true },
+    }),
+  ]);
+
+  const productCountMap = new Map<string, number>();
+  for (const pc of productCounts) {
+    if (pc.vendorId) {
+      productCountMap.set(pc.vendorId, pc._count.vendorId);
+    }
+  }
+
+  const balanceMap = new Map<string, number>();
+  for (const b of balances) {
+    balanceMap.set(b.vendorId, b.totalEarned ?? 0);
+  }
+
+  const enriched = vendors.map((v) => ({
+    ...v,
+    productCount: productCountMap.get(v.userId) ?? 0,
+    totalEarnings: balanceMap.get(v.userId) ?? 0,
+  }));
 
   return {
     data: enriched,

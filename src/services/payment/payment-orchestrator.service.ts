@@ -1,7 +1,7 @@
 import prisma from '../../configs/prismaConfig';
 import createError from 'http-errors';
 import { OrderStatus, PaymentStatus } from '../../../generated/prisma';
-import type { Prisma } from '../../../generated/prisma';
+import type { Payment, Prisma } from '../../../generated/prisma';
 import type {
   InitPaymentResult,
   VerifyPaymentResult,
@@ -12,6 +12,7 @@ import { getPaymentProvider } from './payment.service';
 import { sendOrderReceipt, sendDigitalProductDelivery } from '../email.service';
 import { createDownloadRecords } from '../download.service';
 import { settleOrder } from '../ledger.write.service';
+import { releaseExpiredCheckoutSessions } from '../checkout.service';
 import { globalLog as logger } from '../../configs/loggerConfig';
 
 async function sendReceiptForOrder(
@@ -271,12 +272,172 @@ async function handleDigitalDelivery(
   }
 }
 
+async function getSessionOrders(checkoutSessionId: string) {
+  return prisma.order.findMany({
+    where: { checkoutSessionId },
+    select: { id: true, orderNumber: true, status: true },
+  });
+}
+
+async function markPaymentCompleted(
+  payment: Payment,
+  paidAt = new Date(),
+): Promise<Array<{ id: string; orderNumber: string; status: OrderStatus }>> {
+  if (!payment.checkoutSessionId) return [];
+
+  const applied = await prisma.$transaction(async (tx) => {
+    const updated = await tx.payment.updateMany({
+      where: { id: payment.id, status: PaymentStatus.PENDING },
+      data: {
+        status: PaymentStatus.COMPLETED,
+        paidAt,
+        providerData: {
+          confirmedAt: paidAt.toISOString(),
+          method: payment.provider,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    if (updated.count === 0) return false;
+
+    const orders = await tx.order.findMany({
+      where: { checkoutSessionId: payment.checkoutSessionId! },
+    });
+
+    for (const order of orders) {
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.PAID, paidAt },
+      });
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: order.id,
+          status: OrderStatus.PAID,
+          note: 'Payment confirmed',
+        },
+      });
+    }
+
+    return true;
+  });
+
+  const orders = await prisma.order.findMany({
+    where: { checkoutSessionId: payment.checkoutSessionId },
+  });
+
+  if (applied) {
+    for (const order of orders) {
+      void sendReceiptForOrder(
+        payment.id,
+        order.id,
+        paidAt.toISOString(),
+      ).catch((err) => {
+        logger.error('[Email] Failed to send receipt for order', {
+          orderId: order.id,
+          error: (err as Error).message,
+        });
+      });
+
+      if (order.vendorId) {
+        try {
+          await settleOrder(order.id);
+        } catch (err) {
+          logger.error(
+            '[Ledger] CRITICAL — Failed to settle order. Manual resolution required.',
+            {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              vendorId: order.vendorId,
+              checkoutSessionId: payment.checkoutSessionId,
+              error: (err as Error).message,
+            },
+          );
+        }
+      }
+    }
+  }
+
+  return getSessionOrders(payment.checkoutSessionId);
+}
+
+async function markPaymentFailed(
+  payment: Payment,
+): Promise<Array<{ id: string; orderNumber: string; status: OrderStatus }>> {
+  if (!payment.checkoutSessionId) return [];
+
+  const applied = await prisma.$transaction(async (tx) => {
+    const updated = await tx.payment.updateMany({
+      where: { id: payment.id, status: PaymentStatus.PENDING },
+      data: {
+        status: PaymentStatus.FAILED,
+        providerData: {
+          declinedAt: new Date().toISOString(),
+          method: payment.provider,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    if (updated.count === 0) return false;
+
+    const orders = await tx.order.findMany({
+      where: { checkoutSessionId: payment.checkoutSessionId! },
+    });
+
+    for (const order of orders) {
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.CANCELLED },
+      });
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: order.id,
+          status: OrderStatus.CANCELLED,
+          note: 'Payment declined',
+        },
+      });
+
+      const items = await tx.orderItem.findMany({
+        where: { orderId: order.id },
+        include: { product: { select: { type: true } } },
+      });
+
+      for (const item of items) {
+        if (item.product.type === 'DIGITAL') continue;
+        if (item.variantId) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { increment: item.quantity } },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }
+    }
+
+    return true;
+  });
+
+  if (!applied) {
+    logger.info('[Payment] Skipped duplicate failed settlement', {
+      paymentId: payment.id,
+      checkoutSessionId: payment.checkoutSessionId,
+    });
+  }
+
+  return getSessionOrders(payment.checkoutSessionId);
+}
+
 export async function initializePayment(
   userId: string,
   userEmail: string,
   checkoutSessionId: string,
   provider: PaymentProviderType = 'MOCK' as PaymentProviderType,
 ): Promise<InitPaymentResult> {
+  await releaseExpiredCheckoutSessions();
+
   const orders = await prisma.order.findMany({
     where: { checkoutSessionId, userId },
   });
@@ -391,12 +552,22 @@ export async function verifyPayment(
 
   const providerResult = await paymentProvider.verifyPayment(transactionRef);
 
-  const orders = payment.checkoutSessionId
-    ? await prisma.order.findMany({
-        where: { checkoutSessionId: payment.checkoutSessionId },
-        select: { id: true, orderNumber: true, status: true },
-      })
+  let orders = payment.checkoutSessionId
+    ? await getSessionOrders(payment.checkoutSessionId)
     : [];
+
+  if (providerResult.status === 'success') {
+    if (Math.abs(providerResult.amount - payment.amount) > 0.01) {
+      throw createError(400, 'Payment amount does not match checkout total');
+    }
+
+    orders = await markPaymentCompleted(
+      payment,
+      providerResult.paidAt ? new Date(providerResult.paidAt) : new Date(),
+    );
+  } else if (providerResult.status === 'failed') {
+    orders = await markPaymentFailed(payment);
+  }
 
   return {
     ...providerResult,
@@ -452,126 +623,13 @@ export async function handleWebhook(
   const providerResult = await provider.handleWebhook(rawBody, signature);
 
   if (providerResult.status === 'completed') {
-    const paidAt = new Date();
-    const orders = await prisma.order.findMany({
-      where: { checkoutSessionId: payment.checkoutSessionId! },
-    });
-
-    await prisma.$transaction([
-      prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatus.COMPLETED,
-          paidAt,
-          providerData: {
-            confirmedAt: paidAt.toISOString(),
-            method: payment.provider,
-          } as Prisma.InputJsonValue,
-        },
-      }),
-      ...orders.flatMap((order) => [
-        prisma.order.update({
-          where: { id: order.id },
-          data: { status: OrderStatus.PAID, paidAt },
-        }),
-        prisma.orderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            status: OrderStatus.PAID,
-            note: 'Payment confirmed',
-          },
-        }),
-      ]),
-    ]);
-
-    for (const order of orders) {
-      // Fire-and-forget receipts — webhook must respond quickly
-      void sendReceiptForOrder(
-        payment.id,
-        order.id,
-        paidAt.toISOString(),
-      ).catch((err) => {
-        logger.error('[Email] Failed to send receipt for order', {
-          orderId: order.id,
-          error: (err as Error).message,
-        });
-      });
-
-      if (order.vendorId) {
-        try {
-          await settleOrder(order.id);
-        } catch (err) {
-          logger.error(
-            '[Ledger] CRITICAL — Failed to settle order. Manual resolution required.',
-            {
-              orderId: order.id,
-              orderNumber: order.orderNumber,
-              vendorId: order.vendorId,
-              checkoutSessionId: payment.checkoutSessionId,
-              error: (err as Error).message,
-            },
-          );
-        }
-      }
-    }
-
+    await markPaymentCompleted(payment);
     return { status: 'completed' };
+
   }
 
   if (providerResult.status === 'failed') {
-    const orders = await prisma.order.findMany({
-      where: { checkoutSessionId: payment.checkoutSessionId! },
-    });
-
-    await prisma.$transaction([
-      prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatus.FAILED,
-          providerData: {
-            declinedAt: new Date().toISOString(),
-            method: payment.provider,
-          } as Prisma.InputJsonValue,
-        },
-      }),
-      ...orders.flatMap((order) => [
-        prisma.order.update({
-          where: { id: order.id },
-          data: { status: OrderStatus.CANCELLED },
-        }),
-        prisma.orderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            status: OrderStatus.CANCELLED,
-            note: 'Payment declined',
-          },
-        }),
-      ]),
-    ]);
-
-    await prisma.$transaction(async (tx) => {
-      for (const order of orders) {
-        const items = await tx.orderItem.findMany({
-          where: { orderId: order.id },
-          include: { product: { select: { type: true } } },
-        });
-        for (const item of items) {
-          if (item.product.type === 'DIGITAL') continue;
-          if (item.variantId) {
-            await tx.productVariant.update({
-              where: { id: item.variantId },
-              data: { stock: { increment: item.quantity } },
-            });
-          } else {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            });
-          }
-        }
-      }
-    });
-
+    await markPaymentFailed(payment);
     return { status: 'failed' };
   }
 

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import catchAsync from '../utils/catchAsync';
 import createError from 'http-errors';
 import { ProductService, getDashboardStats as fetchDashboardStats } from '../services/product.management.service';
+import * as productManagementService from '../services/product.management.service';
 import type { ProductContext } from '../services/product.management.service';
 import {
   adminCreateProductSchema,
@@ -10,6 +11,8 @@ import {
   vendorUpdateProductSchema,
   productListQuerySchema,
   toggleProductSchema,
+  adminProductVisibilitySchema,
+  adminProductApprovalSchema,
 } from '../validators/product.management.validator';
 import { signProductRecord, signProductRecords } from '../utils/signUrl';
 
@@ -75,6 +78,30 @@ export const adminDeleteProduct = catchAsync(async (req: Request, res: Response,
   res.status(200).json({
     success: true,
     message: 'Product deactivated successfully.',
+  });
+});
+
+export const adminUpdateProductVisibility = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const data = adminProductVisibilitySchema.parse(req.body);
+  const product = await productManagementService.updateProductVisibility(req.params.id as string, data);
+
+  res.status(200).json({
+    success: true,
+    data: await signProductRecord(product),
+    message: `Product ${data.isActive ? 'enabled' : 'disabled'} successfully.`,
+  });
+});
+
+export const adminUpdateProductApproval = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const data = adminProductApprovalSchema.parse(req.body);
+  const product = await productManagementService.updateProductApproval(req.params.id as string, data);
+
+  res.status(200).json({
+    success: true,
+    data: await signProductRecord(product),
+    message: data.approvalStatus === 'APPROVED'
+      ? 'Vendor product approved.'
+      : 'Vendor product voided.',
   });
 });
 

@@ -11,6 +11,7 @@ import { signR2Key, signProductImages } from '../utils/signUrl';
 import { sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
 import { globalLog as logger } from '../configs/loggerConfig';
+import { reverseOrderSettlement } from './ledger.write.service';
 
 // ─── Valid status transitions ───────────────────────────────────
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -338,6 +339,7 @@ export async function updateOrderStatus(
 
     // C6 FIX: Log that payment refund needs manual processing
     if (newStatus === OrderStatus.REFUNDED) {
+      await reverseOrderSettlement(orderId);
       logger.warn('[Refund] MANUAL ACTION REQUIRED — Payment refund not yet integrated. Order status set to REFUNDED but customer payment has NOT been returned.', {
         orderId,
         orderNumber: order.orderNumber,
@@ -502,6 +504,20 @@ async function formatAdminOrderResponse(order: {
     createdAt: Date;
   }>;
 }): Promise<OrderWithItems> {
+  const payment = order.checkoutSessionId
+    ? await prisma.payment.findUnique({
+        where: { checkoutSessionId: order.checkoutSessionId },
+        select: {
+          id: true,
+          provider: true,
+          status: true,
+          amount: true,
+          transactionRef: true,
+          paidAt: true,
+        },
+      })
+    : null;
+
   // Sign product images in order items
   const signedItems = await Promise.all(
     order.items.map(async (item) => {
@@ -564,5 +580,15 @@ async function formatAdminOrderResponse(order: {
     paidAt: order.paidAt,
     shippedAt: order.shippedAt,
     deliveredAt: order.deliveredAt,
+    payment: payment
+      ? {
+          id: payment.id,
+          provider: payment.provider,
+          status: payment.status,
+          amount: payment.amount,
+          reference: payment.transactionRef,
+          paidAt: payment.paidAt,
+        }
+      : null,
   };
 }

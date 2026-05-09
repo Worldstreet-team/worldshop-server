@@ -490,6 +490,21 @@ async function main() {
   });
   console.log('   PlatformConfig: commissionRate = 0.10');
 
+  if (process.env.SEED_ADMIN_USER_ID && process.env.SEED_ADMIN_EMAIL) {
+    await prisma.userProfile.upsert({
+      where: { userId: process.env.SEED_ADMIN_USER_ID },
+      update: { role: 'ADMIN', email: process.env.SEED_ADMIN_EMAIL },
+      create: {
+        userId: process.env.SEED_ADMIN_USER_ID,
+        email: process.env.SEED_ADMIN_EMAIL,
+        firstName: process.env.SEED_ADMIN_FIRST_NAME || 'Seeded',
+        lastName: process.env.SEED_ADMIN_LAST_NAME || 'Admin',
+        role: 'ADMIN',
+      },
+    });
+    console.log(`   Seeded admin: ${process.env.SEED_ADMIN_EMAIL}`);
+  }
+
   // ── Summary ───────────────────────────────────────────────────
   const categoryCount = await prisma.category.count();
   const productCount = await prisma.product.count();

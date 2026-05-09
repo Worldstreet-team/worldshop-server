@@ -82,7 +82,7 @@ export const deleteDigitalAsset = catchAsync(async (req: Request, res: Response,
     select: { product: { select: { vendorId: true } } },
   });
   if (!asset) throw createError(404, 'Digital asset not found');
-  if (asset.product.vendorId !== vendorId) throw createError(403, 'You do not have access to this asset');
+  if (!asset?.product || asset.product.vendorId !== vendorId) throw createError(403, 'You do not have access to this asset');
 
   await digitalAssetService.deleteDigitalAsset(assetId);
 

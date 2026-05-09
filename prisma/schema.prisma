@@ -63,7 +63,7 @@ model UserProfile {
   isVendor         Boolean       @default(false)
   vendorStatus     VendorStatus?
   storeName        String?
-  storeSlug        String?
+  storeSlug        String?       @unique
   storeDescription String?
   vendorSince      DateTime?
 
@@ -470,7 +470,10 @@ model PlatformConfig {
 enum LedgerEntryType {
   SALE
   COMMISSION
+  REFUND
+  COMMISSION_REVERSAL
   WITHDRAWAL
+  WITHDRAWAL_REVERSAL
 }
 
 model LedgerEntry {
@@ -502,4 +505,55 @@ model VendorBalance {
   totalEarned     Float    @default(0)
   totalCommission Float    @default(0)
   updatedAt       DateTime @updatedAt
+}
+
+// ============================================
+// VENDOR WITHDRAWAL ACCOUNT
+// Bank account details vendors use for payouts.
+// Account name must match the vendor profile name.
+// ============================================
+
+model VendorWithdrawalAccount {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  vendorId      String   @unique // External auth user id
+  bankName      String
+  accountNumber String
+  accountName   String
+  isVerified    Boolean  @default(false)
+  verifiedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum WithdrawalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+// Vendor payout request for admin-managed manual disbursement.
+// Bank details are snapshotted so the admin pays the account selected at request time.
+model VendorWithdrawalRequest {
+  id            String                  @id @default(auto()) @map("_id") @db.ObjectId
+  vendorId      String                  // External auth user id
+  accountId     String                  @db.ObjectId
+  amount        Float
+  currency      String                  @default("NGN")
+  status        WithdrawalRequestStatus @default(PENDING)
+  bankName      String
+  accountNumber String
+  accountName   String
+  vendorNote    String?
+  adminNote     String?
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  paidAt        DateTime?
+  ledgerEntryId String?                 @db.ObjectId
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([createdAt])
 }

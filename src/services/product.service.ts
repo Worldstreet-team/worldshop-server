@@ -3,6 +3,7 @@ import type { ProductQueryInput, SearchQueryInput } from '../validators/product.
 import { paginatedResult } from '../utils/pagination';
 import type { PaginatedResult } from '../types/product.types';
 import type { Product } from '../../generated/prisma';
+import { getPublicProductWhere, assertProductPurchasable } from './product-eligibility.service';
 
 /**
  * listProducts — Paginated, filterable product listing.
@@ -87,15 +88,17 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
   // ── Query ─────────────────────────────────────────────────────
   const skip = (page - 1) * limit;
 
+  const publicWhere = await getPublicProductWhere(where);
+
   const [products, total] = await Promise.all([
     prisma.product.findMany({
-      where,
+      where: publicWhere,
       include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy,
       skip,
       take: limit,
     }),
-    prisma.product.count({ where }),
+    prisma.product.count({ where: publicWhere }),
   ]);
 
   return paginatedResult(products, total, page, limit);
@@ -105,20 +108,34 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
  * getProductBySlug — Single product lookup by slug.
  */
 export async function getProductBySlug(slug: string) {
-  return prisma.product.findUnique({
+  const product = await prisma.product.findUnique({
     where: { slug },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
   });
+  if (!product) return null;
+  try {
+    await assertProductPurchasable(product);
+    return product;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * getProductById — Single product lookup by ID.
  */
 export async function getProductById(id: string) {
-  return prisma.product.findUnique({
+  const product = await prisma.product.findUnique({
     where: { id },
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
   });
+  if (!product) return null;
+  try {
+    await assertProductPurchasable(product);
+    return product;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -127,7 +144,7 @@ export async function getProductById(id: string) {
  */
 export async function getFeaturedProducts(limit: number = 8) {
   const featured = await prisma.product.findMany({
-    where: { isFeatured: true },
+    where: await getPublicProductWhere({ isFeatured: true }),
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -137,9 +154,9 @@ export async function getFeaturedProducts(limit: number = 8) {
 
   // Back-fill with remaining products
   const backfill = await prisma.product.findMany({
-    where: {
+    where: await getPublicProductWhere({
       id: { notIn: featured.map((p) => p.id) },
-    },
+    }),
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { createdAt: 'desc' },
     take: limit - featured.length,
@@ -160,10 +177,10 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
   if (!product?.categoryId) return [];
 
   const related = await prisma.product.findMany({
-    where: {
+    where: await getPublicProductWhere({
       categoryId: product.categoryId,
       id: { not: productId },
-    },
+    }),
     include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
     take: limit,
@@ -172,9 +189,9 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
   // Back-fill from other categories if needed
   if (related.length < limit) {
     const backfill = await prisma.product.findMany({
-      where: {
+      where: await getPublicProductWhere({
         id: { notIn: [productId, ...related.map((r) => r.id)] },
-      },
+      }),
       include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
       orderBy: { avgRating: 'desc' },
       take: limit - related.length,
@@ -190,14 +207,14 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
  */
 export async function searchProducts(q: string, limit: number = 10) {
   return prisma.product.findMany({
-    where: {
+    where: await getPublicProductWhere({
       OR: [
         { name: { contains: q, mode: 'insensitive' } },
         { description: { contains: q, mode: 'insensitive' } },
         { brand: { contains: q, mode: 'insensitive' } },
         { tags: { hasSome: [q.toLowerCase()] } },
       ],
-    },
+    }),
     include: { category: true },
     orderBy: { avgRating: 'desc' },
     take: limit,
@@ -210,7 +227,7 @@ export async function searchProducts(q: string, limit: number = 10) {
 export async function getProductPriceRange() {
   const [result] = await prisma.product.aggregateRaw({
     pipeline: [
-      { $match: {} },
+      { $match: { isActive: true, approvalStatus: 'APPROVED' } },
       {
         $group: {
           _id: null,
@@ -229,7 +246,7 @@ export async function getProductPriceRange() {
  */
 export async function getAllBrands() {
   const products = await prisma.product.findMany({
-    where: { isActive: true, brand: { not: null } },
+    where: await getPublicProductWhere({ brand: { not: null } }),
     select: { brand: true },
     distinct: ['brand'],
     orderBy: { brand: 'asc' },

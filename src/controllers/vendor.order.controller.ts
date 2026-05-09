@@ -51,16 +51,18 @@ export const updateStatus = catchAsync(async (req: Request, res: Response, _next
     where: { userId: order.userId },
     select: { email: true, firstName: true, lastName: true },
   });
-  if (customer?.email) {
-    sendOrderStatusUpdate({
-      customerEmail: customer.email,
-      customerName: `${customer.firstName} ${customer.lastName}`,
-      orderNumber: order.orderNumber,
-      orderId: order.id,
-      newStatus: input.status,
-      note: input.note,
-    }).catch(() => {}); // fire-and-forget
-  }
+    if (customer?.email) {
+      sendOrderStatusUpdate({
+        customerEmail: customer.email,
+        customerName: `${customer.firstName} ${customer.lastName}`,
+        orderNumber: order.orderNumber,
+        orderId: order.id,
+        newStatus: input.status,
+        note: input.note,
+      }).catch((err) => {
+        console.error('Failed to send order status email:', err);
+      });
+    }
 
   res.status(200).json({
     success: true,

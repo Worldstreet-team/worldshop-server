@@ -139,3 +139,86 @@ export async function settleOrder(orderId: string): Promise<SettleOrderResult> {
     wasAlreadySettled: false,
   };
 }
+
+export async function reverseOrderSettlement(orderId: string) {
+  const existingRefund = await prisma.ledgerEntry.findFirst({
+    where: { orderId, type: LedgerEntryType.REFUND },
+  });
+
+  if (existingRefund) {
+    return { wasAlreadyReversed: true };
+  }
+
+  const saleEntry = await prisma.ledgerEntry.findFirst({
+    where: { orderId, type: LedgerEntryType.SALE },
+  });
+  const commissionEntry = await prisma.ledgerEntry.findFirst({
+    where: { orderId, type: LedgerEntryType.COMMISSION },
+  });
+
+  if (!saleEntry) {
+    return { wasAlreadyReversed: false, skipped: true };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const balance = await tx.vendorBalance.findUnique({
+      where: { vendorId: saleEntry.vendorId },
+    });
+    const balanceBefore = balance?.availableBalance ?? 0;
+    const vendorDebit = -saleEntry.amount;
+    const commissionDebit = -(commissionEntry?.amount ?? 0);
+
+    const refundEntry = await tx.ledgerEntry.create({
+      data: {
+        orderId,
+        vendorId: saleEntry.vendorId,
+        type: LedgerEntryType.REFUND,
+        amount: vendorDebit,
+        balanceBefore,
+        balanceAfter: balanceBefore + vendorDebit,
+      },
+    });
+
+    if (commissionEntry) {
+      await tx.ledgerEntry.create({
+        data: {
+          orderId,
+          vendorId: saleEntry.vendorId,
+          type: LedgerEntryType.COMMISSION_REVERSAL,
+          amount: commissionDebit,
+          balanceBefore,
+          balanceAfter: balanceBefore + vendorDebit,
+        },
+      });
+    }
+
+    const updatedBalance = await tx.vendorBalance.upsert({
+      where: { vendorId: saleEntry.vendorId },
+      create: {
+        vendorId: saleEntry.vendorId,
+        availableBalance: vendorDebit,
+        totalEarned: vendorDebit,
+        totalCommission: commissionDebit,
+      },
+      update: {
+        availableBalance: { increment: vendorDebit },
+        totalEarned: { increment: vendorDebit },
+        totalCommission: { increment: commissionDebit },
+      },
+    });
+
+    return { refundEntry, updatedBalance };
+  }, { timeout: 15000 });
+
+  logger.info('[Ledger] Order settlement reversed', {
+    orderId,
+    vendorId: saleEntry.vendorId,
+    amount: result.refundEntry.amount,
+  });
+
+  return {
+    wasAlreadyReversed: false,
+    vendorId: saleEntry.vendorId,
+    newAvailableBalance: result.updatedBalance.availableBalance,
+  };
+}

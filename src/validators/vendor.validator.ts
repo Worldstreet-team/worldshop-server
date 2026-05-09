@@ -27,3 +27,26 @@ export const updateVendorSchema = z.object({
 });
 
 export type UpdateVendorInput = z.infer<typeof updateVendorSchema>;
+
+export const withdrawalAccountSchema = z.object({
+  bankName: z.string().min(2, 'Bank name is required').max(100),
+  accountNumber: z.string().min(6).max(20).regex(/^\d+$/, 'Account number must contain digits only'),
+  accountName: z.string().min(2, 'Account name is required').max(120),
+});
+
+export type WithdrawalAccountInput = z.infer<typeof withdrawalAccountSchema>;
+
+export const withdrawalRequestSchema = z.object({
+  amount: z.coerce.number().positive('Withdrawal amount must be greater than zero').max(100_000_000),
+  accountId: z.string().optional(),
+  vendorNote: z.string().max(500).optional(),
+});
+
+export const vendorWithdrawalListSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'PAID']).optional(),
+});
+
+export type WithdrawalRequestInput = z.infer<typeof withdrawalRequestSchema>;
+export type VendorWithdrawalListInput = z.infer<typeof vendorWithdrawalListSchema>;

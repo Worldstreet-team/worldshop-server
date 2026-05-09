@@ -97,3 +97,16 @@ export const toggleProductSchema = z.object({
 });
 
 export type ToggleProductInput = z.infer<typeof toggleProductSchema>;
+
+export const adminProductVisibilitySchema = z.object({
+  isActive: z.boolean(),
+});
+
+export type AdminProductVisibilityInput = z.infer<typeof adminProductVisibilitySchema>;
+
+export const adminProductApprovalSchema = z.object({
+  approvalStatus: z.enum(['APPROVED', 'REJECTED']),
+  reason: z.string().max(500).optional(),
+});
+
+export type AdminProductApprovalInput = z.infer<typeof adminProductApprovalSchema>;

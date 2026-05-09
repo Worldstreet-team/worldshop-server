@@ -43,6 +43,14 @@ export interface OrderWithItems {
   paidAt?: Date | null;
   shippedAt?: Date | null;
   deliveredAt?: Date | null;
+  payment?: {
+    id: string;
+    provider: string;
+    status: string;
+    amount: number;
+    reference: string | null;
+    paidAt?: Date | null;
+  } | null;
 }
 
 // ─── Order item response ────────────────────────────────────────

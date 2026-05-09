@@ -14,8 +14,10 @@ import * as vendorOrderController from '../controllers/vendor.order.controller';
 import * as vendorAnalyticsController from '../controllers/vendor.analytics.controller';
 import * as vendorReviewController from '../controllers/vendor.review.controller';
 import { updateVendorOrderStatusSchema } from '../validators/vendor.order.validator';
+import { attachDigitalAssetsSchema } from '../validators/digitalAsset.validator';
 import { uploadProductImages, uploadDigitalFiles, handleMulterError } from '../middlewares/upload.middleware';
 import * as uploadController from '../controllers/upload.controller';
+import * as vendorUploadController from '../controllers/vendor.upload.controller';
 import * as vendorDigitalAssetController from '../controllers/vendor.digitalAsset.controller';
 
 const router = Router();
@@ -29,10 +31,14 @@ router.use(requireAuth, requireVendor);
 // ─── Vendor Profile ─────────────────────────────────────────────
 router.get('/profile', vendorController.getProfile);
 router.patch('/profile', validate(updateVendorSchema), vendorController.updateProfile);
+router.get('/withdrawal-account', vendorController.getWithdrawalAccount);
+router.put('/withdrawal-account', vendorController.upsertWithdrawalAccount);
+router.get('/withdrawals', vendorController.listWithdrawalRequests);
+router.post('/withdrawals', vendorController.createWithdrawalRequest);
 
 // ─── Vendor Uploads (reuses same upload controller as admin) ────
 router.post('/upload/images', uploadProductImages, handleMulterError, uploadController.uploadImages);
-router.delete('/upload/images', uploadController.deleteImages);
+router.delete('/upload/images', vendorUploadController.deleteVendorImages);
 router.post('/upload/digital-files', uploadDigitalFiles, handleMulterError, uploadController.uploadDigitalFiles);
 
 // ─── Vendor Products ────────────────────────────────────────────
@@ -45,7 +51,7 @@ router.patch('/products/:id/toggle', validate(toggleProductSchema), productContr
 
 // ─── Vendor Digital Assets (attach/manage digital files on products) ─
 router.get('/products/:id/digital-assets', vendorDigitalAssetController.getDigitalAssets);
-router.post('/products/:id/digital-assets', vendorDigitalAssetController.attachDigitalAssets);
+  router.post('/products/:id/digital-assets', validate(attachDigitalAssetsSchema), vendorDigitalAssetController.attachDigitalAssets);
 router.delete('/digital-assets/:assetId', vendorDigitalAssetController.deleteDigitalAsset);
 
 // ─── Vendor Orders ──────────────────────────────────────────────

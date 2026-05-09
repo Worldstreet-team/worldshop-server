@@ -2,7 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import catchAsync from '../utils/catchAsync';
 import * as adminVendorService from '../services/admin.vendor.service';
 import * as ledgerReadService from '../services/ledger.read.service';
+import * as withdrawalService from '../services/vendor.withdrawal.service';
 import {
+  adminWithdrawalListSchema,
+  adminWithdrawalStatusSchema,
   adminVendorListSchema,
   adminVendorStatusSchema,
   adminVendorProductsSchema,
@@ -59,7 +62,7 @@ export const getVendorProducts = catchAsync(async (req: Request, res: Response, 
   const vendor = await adminVendorService.getVendorDetail(req.params.id as string);
   const query = adminVendorProductsSchema.parse(req.query);
   const result = await adminVendorService.getVendorProducts(vendor.userId, query);
-  result.data = await signProductRecords(result.data as any) as any;
+  result.data = await signProductRecords(result.data);
 
   res.status(200).json({ success: true, ...result });
 });
@@ -99,5 +102,42 @@ export const updateCommissionRate = catchAsync(async (req: Request, res: Respons
     success: true,
     data: result,
     message: `Commission rate updated to ${(rate * 100).toFixed(1)}%. This affects future orders only.`,
+  });
+});
+
+/**
+ * GET /api/v1/admin/withdrawals
+ */
+export const listWithdrawalRequests = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const query = adminWithdrawalListSchema.parse(req.query);
+  const result = await withdrawalService.listAdminWithdrawalRequests(query);
+
+  res.status(200).json({ success: true, ...result });
+});
+
+/**
+ * GET /api/v1/admin/withdrawals/:id
+ */
+export const getWithdrawalRequest = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const result = await withdrawalService.getAdminWithdrawalRequest(req.params.id as string);
+
+  res.status(200).json({ success: true, data: result });
+});
+
+/**
+ * PATCH /api/v1/admin/withdrawals/:id/status
+ */
+export const updateWithdrawalRequestStatus = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const input = adminWithdrawalStatusSchema.parse(req.body);
+  const result = await withdrawalService.updateWithdrawalRequestStatus(
+    req.params.id as string,
+    req.user?.id ?? 'admin',
+    input,
+  );
+
+  res.status(200).json({
+    success: true,
+    data: result,
+    message: `Withdrawal request marked as ${input.status}.`,
   });
 });
