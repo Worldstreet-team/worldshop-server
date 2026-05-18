@@ -1,6 +1,6 @@
 import prisma from '../../configs/prismaConfig';
 import createError from 'http-errors';
-import { OrderStatus, PaymentStatus } from '../../../generated/prisma';
+import { OrderStatus, PaymentProvider, PaymentStatus } from '../../../generated/prisma';
 import type { Payment, Prisma } from '../../../generated/prisma';
 import type {
   InitPaymentResult,
@@ -14,6 +14,19 @@ import { createDownloadRecords } from '../download.service';
 import { settleOrder } from '../ledger.write.service';
 import { releaseExpiredCheckoutSessions } from '../checkout.service';
 import { globalLog as logger } from '../../configs/loggerConfig';
+
+function normalizePaymentProvider(
+  provider: unknown,
+): PaymentProviderType {
+  if (typeof provider !== 'string') return PaymentProvider.MOCK;
+
+  const normalized = provider.trim().toUpperCase();
+  if (normalized in PaymentProvider) {
+    return PaymentProvider[normalized as keyof typeof PaymentProvider];
+  }
+
+  return PaymentProvider.MOCK;
+}
 
 async function sendReceiptForOrder(
   paymentId: string,
@@ -437,6 +450,7 @@ export async function initializePayment(
   provider: PaymentProviderType = 'MOCK' as PaymentProviderType,
 ): Promise<InitPaymentResult> {
   await releaseExpiredCheckoutSessions();
+  const requestedProvider = normalizePaymentProvider(provider);
 
   const orders = await prisma.order.findMany({
     where: { checkoutSessionId, userId },
@@ -460,7 +474,8 @@ export async function initializePayment(
       throw createError(400, 'This checkout session has already been paid for');
     }
     if (existingPayment.status === PaymentStatus.PENDING) {
-      const paymentProvider = getPaymentProvider(existingPayment.provider as PaymentProviderType);
+      const existingProvider = normalizePaymentProvider(existingPayment.provider);
+      const paymentProvider = getPaymentProvider(existingProvider);
       const result = await paymentProvider.initializePayment({
         checkoutSessionId,
         userId,
@@ -470,7 +485,10 @@ export async function initializePayment(
       });
       await prisma.payment.update({
         where: { id: existingPayment.id },
-        data: { transactionRef: result.transactionRef },
+        data: {
+          provider: existingProvider,
+          transactionRef: result.transactionRef,
+        },
       });
       return result;
     }
@@ -478,7 +496,7 @@ export async function initializePayment(
 
   const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
 
-  const paymentProvider = getPaymentProvider(provider);
+  const paymentProvider = getPaymentProvider(requestedProvider);
   const result = await paymentProvider.initializePayment({
     checkoutSessionId,
     userId,
@@ -498,7 +516,7 @@ export async function initializePayment(
       amount: totalAmount,
       currency: 'NGN',
       status: PaymentStatus.PENDING,
-      provider,
+      provider: requestedProvider,
       transactionRef: result.transactionRef,
     },
   });

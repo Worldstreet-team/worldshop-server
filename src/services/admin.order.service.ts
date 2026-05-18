@@ -505,17 +505,7 @@ async function formatAdminOrderResponse(order: {
   }>;
 }): Promise<OrderWithItems> {
   const payment = order.checkoutSessionId
-    ? await prisma.payment.findUnique({
-        where: { checkoutSessionId: order.checkoutSessionId },
-        select: {
-          id: true,
-          provider: true,
-          status: true,
-          amount: true,
-          transactionRef: true,
-          paidAt: true,
-        },
-      })
+    ? await findPaymentForAdminOrder(order.checkoutSessionId)
     : null;
 
   // Sign product images in order items
@@ -591,4 +581,38 @@ async function formatAdminOrderResponse(order: {
         }
       : null,
   };
+}
+
+async function findPaymentForAdminOrder(checkoutSessionId: string) {
+  try {
+    return await prisma.payment.findUnique({
+      where: { checkoutSessionId },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        amount: true,
+        transactionRef: true,
+        paidAt: true,
+      },
+    });
+  } catch (err) {
+    logger.warn('[AdminOrders] Falling back for invalid payment provider enum', {
+      checkoutSessionId,
+      error: (err as Error).message,
+    });
+
+    const payment = await prisma.payment.findUnique({
+      where: { checkoutSessionId },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        transactionRef: true,
+        paidAt: true,
+      },
+    });
+
+    return payment ? { ...payment, provider: 'UNKNOWN' } : null;
+  }
 }
