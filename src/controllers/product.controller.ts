@@ -45,7 +45,7 @@ export const searchProducts = catchAsync(async (req: Request, res: Response, _ne
 
   res.status(200).json({
     success: true,
-    data: await signProductRecords(products),
+    data: await enrichWithVendorInfo(await signProductRecords(products)),
   });
 });
 

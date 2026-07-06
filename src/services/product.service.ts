@@ -215,7 +215,7 @@ export async function searchProducts(q: string, limit: number = 10) {
         { tags: { hasSome: [q.toLowerCase()] } },
       ],
     }),
-    include: { category: true },
+    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
     orderBy: { avgRating: 'desc' },
     take: limit,
   });
