@@ -2,6 +2,7 @@ import type { PaymentProvider as PaymentProviderEnum } from '../../../generated/
 import type { PaymentServiceInterface, PaymentProviderType } from '../../types/payment.types';
 import { mockPaymentProvider } from './providers/mock.provider';
 import { flutterwavePaymentProvider } from './providers/flutterwave.provider';
+import { walletPaymentProvider } from './providers/wallet.provider';
 
 const providerRegistry = new Map<PaymentProviderType, PaymentServiceInterface>();
 
@@ -20,6 +21,7 @@ function getRegisteredProvider(name: PaymentProviderType): PaymentServiceInterfa
 registerProvider('MOCK' as PaymentProviderType, mockPaymentProvider);
 registerProvider('FLUTTERWAVE' as PaymentProviderType, flutterwavePaymentProvider);
 registerProvider('CRYPTO' as PaymentProviderType, mockPaymentProvider);
+registerProvider('WALLET' as PaymentProviderType, walletPaymentProvider);
 
 const paymentProviders = {
   register: registerProvider,

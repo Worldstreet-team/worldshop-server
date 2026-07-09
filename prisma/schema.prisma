@@ -325,6 +325,7 @@ enum PaymentProvider {
   MOCK
   FLUTTERWAVE
   CRYPTO
+  WALLET
 }
 
 enum PaymentStatus {

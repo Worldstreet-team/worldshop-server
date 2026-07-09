@@ -21,6 +21,8 @@ const {
   FLW_SECRET_KEY,
   FLW_PUBLIC_KEY,
   FLW_SECRET_HASH,
+  WALLET_API_URL,
+  WALLET_SERVICE_TOKEN,
 } = process.env;
 
 export { 
@@ -43,4 +45,6 @@ export {
   FLW_SECRET_KEY,
   FLW_PUBLIC_KEY,
   FLW_SECRET_HASH,
+  WALLET_API_URL,
+  WALLET_SERVICE_TOKEN,
 };
