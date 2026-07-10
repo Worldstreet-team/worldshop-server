@@ -10,24 +10,34 @@ import { globalLog as logger } from '../../../configs/loggerConfig';
 
 /**
  * WALLET provider — pays a checkout from the buyer's central WorldStreet
- * wallet by charging the worldstreet-wallet service server-to-server.
+ * wallet, using the wallet service's hold/capture flow.
+ *
+ * `initializePayment` places a HOLD (funds move from available to locked);
+ * `verifyPayment` CAPTURES it. Nothing is spent until capture, so if the app
+ * dies between the two, the buyer's money is never stranded: the shop's own
+ * checkout sweep releases the hold when it cancels the orders, and the wallet
+ * service's expiry sweep releases it regardless. An earlier version charged
+ * outright, which meant a crash before verify left money taken against an
+ * order that the 60-minute sweep then cancelled.
  *
  * The wallet's spend API is USD-only while the shop prices in NGN, so the
- * order total is converted at charge time using the same public rate source
- * the wallet service itself uses for NGN-funded deposits (CoinGecko
- * USDT/NGN ≈ USD/NGN). The rate and both amounts are snapshotted in the
- * charge metadata; USD cents round UP so conversion never undercharges.
- *
- * Unlike redirect providers the charge is synchronous: by the time
- * `initializePayment` returns, the money has moved. Verification reads the
- * charge back and reports the NGN amount (the orchestrator compares it
- * against `Payment.amount`, which is NGN). There are no webhooks.
+ * order total is converted at hold time using the same public rate source the
+ * wallet service itself uses. The rate and both amounts are snapshotted in the
+ * hold metadata; USD cents round UP so conversion never undercharges.
  */
 
 const WALLET_API_URL = (process.env.WALLET_API_URL || '').replace(/\/+$/, '');
 const WALLET_SERVICE_TOKEN = process.env.WALLET_SERVICE_TOKEN || '';
 
 const REF_PREFIX = 'WSWALLET';
+
+/** Must outlive the checkout reservation, so the shop's sweep gets to release
+ * the hold deliberately before the wallet's expiry sweep does it for us. */
+const CHECKOUT_RESERVATION_MINUTES = Number(process.env.CHECKOUT_RESERVATION_MINUTES || 60);
+const HOLD_TTL_MINUTES = Math.min(
+  Math.max(CHECKOUT_RESERVATION_MINUTES + 10, 5),
+  10_080, // wallet's own 7-day ceiling
+);
 
 // ── FX: USD/NGN with a short TTL cache (mirrors the wallet's fx-actions) ──
 
@@ -102,22 +112,28 @@ export function ngnToUsdMinor(amountNgn: number, rate: number): number {
 
 // ── Wallet service client ──
 
-type WalletCharge = {
+export type WalletHold = {
   id: string;
-  status: 'succeeded' | 'refunded' | string;
+  status: 'held' | 'captured' | 'released' | 'expired';
   amountMinor: number;
+  capturedMinor: number;
+  capturedAt: string | null;
+  expiresAt: string;
   description: string;
   metadata: Record<string, unknown>;
   createdAt: string;
 };
 
-async function walletRequest<T>(
+type WalletResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+
+/** Calls the wallet service without throwing, so callers can branch on `code`. */
+async function walletCall<T>(
   method: 'GET' | 'POST',
   path: string,
   opts: { body?: unknown; idempotencyKey?: string } = {},
-): Promise<T> {
+): Promise<WalletResult<T>> {
   if (!WALLET_API_URL || !WALLET_SERVICE_TOKEN) {
-    throw createError(503, 'Wallet payments are not configured on this server');
+    return { ok: false, code: 'NOT_CONFIGURED', message: 'Wallet payments are not configured' };
   }
 
   const headers: Record<string, string> = {
@@ -126,43 +142,100 @@ async function walletRequest<T>(
   };
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
 
-  const res = await fetch(`${WALLET_API_URL}${path}`, {
-    method,
-    headers,
-    body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-  });
-
-  const json = (await res.json().catch(() => null)) as
-    | ({ ok: boolean; code?: string; error?: string } & Record<string, unknown>)
-    | null;
-
-  if (!json || json.ok !== true) {
-    const code = json?.code || `HTTP_${res.status}`;
-    const message = json?.error || 'Wallet service request failed';
-    if (code === 'INSUFFICIENT_BALANCE') {
-      throw createError(409, 'Insufficient wallet balance for this order. Top up your dollar balance or pay by card.');
-    }
-    logger.error('[Wallet] Service call failed', { path, code, message });
-    throw createError(502, `Wallet payment failed: ${message}`);
+  let json: (Record<string, unknown> & { ok?: boolean; code?: string; error?: string }) | null;
+  try {
+    const res = await fetch(`${WALLET_API_URL}${path}`, {
+      method,
+      headers,
+      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+    });
+    json = (await res.json().catch(() => null)) as typeof json;
+  } catch (err) {
+    return { ok: false, code: 'UNREACHABLE', message: (err as Error).message };
   }
 
-  return json as T;
+  if (!json || json.ok !== true) {
+    return {
+      ok: false,
+      code: json?.code || 'UNKNOWN',
+      message: json?.error || 'Wallet service request failed',
+    };
+  }
+  return { ok: true, data: json as unknown as T };
+}
+
+/** Throwing wrapper for the paths where any failure must abort checkout. */
+function unwrap<T>(result: WalletResult<T>, context: string): T {
+  if (result.ok) return result.data;
+
+  if (result.code === 'INSUFFICIENT_BALANCE') {
+    throw createError(
+      409,
+      'Insufficient wallet balance for this order. Top up your dollar balance or pay by card.',
+    );
+  }
+  logger.error('[Wallet] Service call failed', { context, code: result.code, message: result.message });
+  throw createError(502, `Wallet payment failed: ${result.message}`);
 }
 
 // ── Composite transaction ref ──
-// verifyPayment only receives the ref, but reading a charge back needs the
-// spender's userId in the path — so both ride in the ref.
+// verifyPayment only receives the ref, but acting on a hold needs the owner's
+// userId in the path — so both ride in the ref.
 
-function buildRef(userId: string, chargeId: string): string {
-  return `${REF_PREFIX}:${userId}:${chargeId}`;
+function buildRef(userId: string, holdId: string): string {
+  return `${REF_PREFIX}:${userId}:${holdId}`;
 }
 
-function parseRef(ref: string): { userId: string; chargeId: string } {
-  const [prefix, userId, chargeId] = ref.split(':');
-  if (prefix !== REF_PREFIX || !userId || !chargeId) {
+export function isWalletRef(ref: string): boolean {
+  return ref.startsWith(`${REF_PREFIX}:`);
+}
+
+function parseRef(ref: string): { userId: string; holdId: string } {
+  const [prefix, userId, holdId] = ref.split(':');
+  if (prefix !== REF_PREFIX || !userId || !holdId) {
     throw createError(400, 'Not a wallet payment reference');
   }
-  return { userId, chargeId };
+  return { userId, holdId };
+}
+
+// ── Hold helpers, used by the checkout sweep to unwind an abandoned session ──
+
+export async function getWalletHold(transactionRef: string): Promise<WalletHold | null> {
+  const { userId, holdId } = parseRef(transactionRef);
+  const result = await walletCall<{ hold: WalletHold }>(
+    'GET',
+    `/v1/wallet/${encodeURIComponent(userId)}/holds/${encodeURIComponent(holdId)}`,
+  );
+  if (!result.ok) {
+    logger.warn('[Wallet] Could not read hold', { transactionRef, code: result.code });
+    return null;
+  }
+  return result.data.hold;
+}
+
+/**
+ * Release a hold so the buyer's funds return to available. Safe to call twice
+ * (the wallet replays a release). Returns false if the hold was already
+ * CAPTURED — the money is gone and the caller must not treat it as unwound.
+ */
+export async function releaseWalletHold(transactionRef: string, reason: string): Promise<boolean> {
+  const { userId, holdId } = parseRef(transactionRef);
+  const result = await walletCall<{ hold: WalletHold }>(
+    'POST',
+    `/v1/wallet/${encodeURIComponent(userId)}/holds/${encodeURIComponent(holdId)}/release`,
+    { body: { reason } },
+  );
+
+  if (result.ok) {
+    logger.info('[Wallet] Hold released', { transactionRef, reason });
+    return true;
+  }
+  logger.error('[Wallet] Hold release failed', {
+    transactionRef,
+    code: result.code,
+    message: result.message,
+  });
+  return false;
 }
 
 // ── Provider ──
@@ -173,67 +246,120 @@ export const walletPaymentProvider: PaymentServiceInterface = {
     const usdMinor = ngnToUsdMinor(params.amount, rate);
     const orderNumbers = (params.metadata?.orderNumbers as string[] | undefined) ?? [];
 
-    const { charge } = await walletRequest<{ charge: WalletCharge }>(
-      'POST',
-      `/v1/wallet/${encodeURIComponent(params.userId)}/charges`,
-      {
-        // Same checkout session → same key → the wallet replays the original
-        // charge instead of double-debiting on retries.
-        idempotencyKey: `worldshop:${params.checkoutSessionId}`,
-        body: {
-          amountMinor: usdMinor,
-          currency: 'USD',
-          description: `WorldShop order ${orderNumbers.join(', ') || params.checkoutSessionId}`,
-          metadata: {
-            checkoutSessionId: params.checkoutSessionId,
-            amountNgn: params.amount,
-            fxRate: rate,
-            orderNumbers,
+    const { hold } = unwrap(
+      await walletCall<{ hold: WalletHold }>(
+        'POST',
+        `/v1/wallet/${encodeURIComponent(params.userId)}/holds`,
+        {
+          // Same checkout session → same key → the wallet replays the original
+          // hold instead of locking the funds twice on a retry.
+          idempotencyKey: `worldshop:hold:${params.checkoutSessionId}`,
+          body: {
+            amountMinor: usdMinor,
+            currency: 'USD',
+            expiresInMinutes: HOLD_TTL_MINUTES,
+            description: `WorldShop order ${orderNumbers.join(', ') || params.checkoutSessionId}`,
+            metadata: {
+              checkoutSessionId: params.checkoutSessionId,
+              amountNgn: params.amount,
+              fxRate: rate,
+              orderNumbers,
+            },
           },
         },
-      },
+      ),
+      'holds.create',
     );
 
-    logger.info('[Wallet] Charge succeeded', {
+    logger.info('[Wallet] Hold placed', {
       checkoutSessionId: params.checkoutSessionId,
-      chargeId: charge.id,
+      holdId: hold.id,
       usdMinor,
       amountNgn: params.amount,
       fxRate: rate,
     });
 
     return {
-      transactionRef: buildRef(params.userId, charge.id),
+      transactionRef: buildRef(params.userId, hold.id),
       action: {
         type: 'display',
-        instructions: `Paid $${(usdMinor / 100).toFixed(2)} from your WorldStreet wallet (₦${params.amount.toLocaleString()} at ₦${rate}/$).`,
+        instructions: `$${(usdMinor / 100).toFixed(2)} reserved from your WorldStreet wallet (₦${params.amount.toLocaleString()} at ₦${rate}/$). It is charged once your order is confirmed.`,
       },
     };
   },
 
+  /**
+   * Captures the hold — this is where the money actually moves. Safe to call
+   * more than once: the wallet replays a capture of the same amount, so a
+   * retried verify reports success rather than double-charging.
+   */
   async verifyPayment(transactionRef: string): Promise<VerifyPaymentResult> {
-    const { userId, chargeId } = parseRef(transactionRef);
+    const { userId, holdId } = parseRef(transactionRef);
 
-    const { charge } = await walletRequest<{ charge: WalletCharge }>(
-      'GET',
-      `/v1/wallet/${encodeURIComponent(userId)}/charges/${encodeURIComponent(chargeId)}`,
-    );
+    const current = await getWalletHold(transactionRef);
+    if (!current) {
+      throw createError(502, 'Could not reach the wallet to confirm your payment');
+    }
 
-    // Report the NGN amount snapshotted at charge time — the orchestrator
-    // checks it against Payment.amount, which is NGN.
-    const amountNgn = Number(charge.metadata?.amountNgn ?? 0);
-
-    return {
-      status: charge.status === 'succeeded' ? 'success' : 'failed',
+    // The NGN amount snapshotted at hold time — the orchestrator checks it
+    // against Payment.amount, which is NGN.
+    const amountNgn = Number(current.metadata?.amountNgn ?? 0);
+    const failed = (status: VerifyPaymentResult['status']): VerifyPaymentResult => ({
+      status,
       transactionRef,
       amount: amountNgn,
-      paidAt: charge.createdAt,
+      paidAt: '',
+      orders: [],
+    });
+
+    if (current.status === 'released' || current.status === 'expired') {
+      logger.warn('[Wallet] Hold no longer capturable', { transactionRef, status: current.status });
+      return failed('failed');
+    }
+
+    if (current.status === 'held') {
+      const captured = await walletCall<{ hold: WalletHold }>(
+        'POST',
+        `/v1/wallet/${encodeURIComponent(userId)}/holds/${encodeURIComponent(holdId)}/capture`,
+        { body: { captureMinor: current.amountMinor } },
+      );
+
+      if (!captured.ok) {
+        // Expired between the read and the capture, or already unwound.
+        if (captured.code === 'HOLD_EXPIRED' || captured.code === 'INVALID_STATUS') {
+          logger.warn('[Wallet] Capture rejected', { transactionRef, code: captured.code });
+          return failed('failed');
+        }
+        return unwrap(captured, 'holds.capture') as never;
+      }
+
+      logger.info('[Wallet] Hold captured', {
+        transactionRef,
+        capturedMinor: captured.data.hold.capturedMinor,
+        amountNgn,
+      });
+
+      return {
+        status: 'success',
+        transactionRef,
+        amount: amountNgn,
+        paidAt: captured.data.hold.capturedAt || new Date().toISOString(),
+        orders: [],
+      };
+    }
+
+    // Already captured by an earlier verify — report the original success.
+    return {
+      status: 'success',
+      transactionRef,
+      amount: amountNgn,
+      paidAt: current.capturedAt || new Date().toISOString(),
       orders: [],
     };
   },
 
   async handleWebhook(): Promise<WebhookResult> {
-    // The wallet charge is synchronous — there is nothing to receive.
+    // Holds are driven synchronously by this server — nothing to receive.
     return { status: 'ignored' };
   },
 };

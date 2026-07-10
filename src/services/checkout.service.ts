@@ -1,7 +1,8 @@
 import prisma from '../configs/prismaConfig';
 import createError from 'http-errors';
 import { createHash, randomUUID } from 'crypto';
-import { OrderStatus } from '../../generated/prisma';
+import { OrderStatus, PaymentProvider, PaymentStatus } from '../../generated/prisma';
+import { getWalletHold, releaseWalletHold } from './payment/providers/wallet.provider';
 import type {
   CheckoutIssue,
   VendorGroup,
@@ -23,6 +24,65 @@ export function isDigitalOnlyCart(
   items: Array<{ product: { type?: string } }>,
 ): boolean {
   return items.every((item) => item.product.type === 'DIGITAL');
+}
+
+/**
+ * Unwind the wallet hold behind an abandoned checkout session, so its funds go
+ * back to the buyer before the orders are cancelled.
+ *
+ * Returns whether it is SAFE to cancel the session's orders. It is not safe
+ * when the money already moved (a captured hold) or when the wallet cannot be
+ * reached to find out — cancelling then would leave the buyer paying for
+ * nothing. In those cases the session is left alone and retried next sweep.
+ */
+async function unwindWalletHoldForSession(checkoutSessionId: string): Promise<boolean> {
+  const payment = await prisma.payment.findUnique({ where: { checkoutSessionId } });
+
+  // Nothing was ever authorized against the wallet — cancel freely.
+  if (!payment || payment.provider !== PaymentProvider.WALLET) return true;
+  if (payment.status === PaymentStatus.FAILED) return true;
+  if (!payment.transactionRef) return true;
+
+  if (payment.status === PaymentStatus.COMPLETED) {
+    logger.error('[Checkout] Refusing to cancel a PAID session', {
+      checkoutSessionId,
+      reason: 'payment already completed but orders are still CREATED',
+    });
+    return false;
+  }
+
+  const hold = await getWalletHold(payment.transactionRef);
+  if (!hold) {
+    logger.warn('[Checkout] Wallet unreachable — leaving session for the next sweep', {
+      checkoutSessionId,
+    });
+    return false;
+  }
+
+  if (hold.status === 'captured') {
+    // The buyer paid but the order was never settled (a crash between capture
+    // and markPaymentCompleted). Cancelling now would take their money for
+    // nothing. Leave it and shout — settlement or a refund needs a human.
+    logger.error('[Checkout] Wallet hold already CAPTURED for an unsettled session', {
+      checkoutSessionId,
+      transactionRef: payment.transactionRef,
+      action: 'orders left CREATED — settle or refund manually',
+    });
+    return false;
+  }
+
+  if (hold.status === 'held' && !(await releaseWalletHold(payment.transactionRef, 'checkout expired'))) {
+    logger.error('[Checkout] Could not release hold — leaving session intact', {
+      checkoutSessionId,
+    });
+    return false;
+  }
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { status: PaymentStatus.FAILED },
+  });
+  return true;
 }
 
 export async function releaseExpiredCheckoutSessions(
@@ -51,6 +111,13 @@ export async function releaseExpiredCheckoutSessions(
 
   for (const checkoutSessionId of checkoutSessionIds) {
     try {
+      // A wallet payment locks the buyer's funds in a hold before the orders
+      // are payable. Unwind that hold before cancelling, and never cancel a
+      // session whose money was already captured — that would take payment for
+      // an order the buyer no longer has.
+      const unwound = await unwindWalletHoldForSession(checkoutSessionId);
+      if (!unwound) continue;
+
       releasedCount += await prisma.$transaction(async (tx) => {
         const orders = await tx.order.findMany({
           where: { checkoutSessionId, status: OrderStatus.CREATED },
