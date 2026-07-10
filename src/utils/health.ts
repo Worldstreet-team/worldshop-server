@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import mongoose from 'mongoose';
 import catchAsync from './catchAsync';
+import prisma from '../configs/prismaConfig';
 
 // Format uptime in readable format
 const formatUptime = (seconds: number): string => {
@@ -30,11 +30,25 @@ export const pingServer = async (
   }
 };
 
+/**
+ * Ping the database Prisma actually talks to. This used to read
+ * `mongoose.connection.readyState`, but nothing in this server connects
+ * mongoose — so it reported "disconnected" even while every query succeeded,
+ * which made the field useless as a signal.
+ */
+const checkDatabase = async (): Promise<'connected' | 'disconnected'> => {
+  try {
+    await prisma.$runCommandRaw({ ping: 1 });
+    return 'connected';
+  } catch {
+    return 'disconnected';
+  }
+};
+
 // Simple health check middleware
 export const healthCheck = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const dbStatus =
-      mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+    const dbStatus = await checkDatabase();
 
     res.status(200).json({
       status: 'success',
