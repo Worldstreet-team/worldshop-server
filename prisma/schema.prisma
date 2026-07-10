@@ -205,6 +205,13 @@ model ProductVariant {
 
 model Cart {
   id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  // `@unique` is required by the seven `cart.findUnique({ where: { userId } })`
+  // call sites, but MongoDB counts a MISSING userId as a value — so a plain
+  // unique index lets only ONE guest cart exist. The real index in MongoDB is a
+  // PARTIAL unique index (userId: {$type: "string"}), created by
+  // `scripts/fix-cart-userid-index.ts`. Prisma cannot express that here.
+  // WARNING: `prisma db push` will recreate this as a plain unique index and
+  // reintroduce the bug — re-run that script afterwards.
   userId    String?    @unique // Authenticated user (one cart per user)
   sessionId String?    @unique // Guest session ID
   items     CartItem[]
