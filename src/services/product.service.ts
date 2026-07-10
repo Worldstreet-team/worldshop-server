@@ -10,7 +10,7 @@ import { getPublicProductWhere, assertProductPurchasable } from './product-eligi
  * Supports: search, category, price range, brand, rating, stock, featured, sorting.
  */
 export async function listProducts(query: ProductQueryInput): Promise<PaginatedResult<Product>> {
-  const { page, limit, search, categoryId, categorySlug, minPrice, maxPrice, brand, rating, inStock, isFeatured, sortBy, vendorId } = query;
+  const { page, limit, search, categoryId, categorySlug, minPrice, maxPrice, brand, rating, inStock, isFeatured, onSale, sortBy, vendorId } = query;
 
   // ── Build filter ──────────────────────────────────────────────
   const where: Record<string, unknown> = {};
@@ -47,6 +47,12 @@ export async function listProducts(query: ProductQueryInput): Promise<PaginatedR
 
   // Featured only
   if (isFeatured !== undefined) where.isFeatured = isFeatured;
+
+  // Discounted only. A cross-field compare (salePrice < basePrice) isn't
+  // expressible in a Prisma where for MongoDB, so this matches anything
+  // carrying a sale price; the client drops the rare product whose "sale"
+  // price isn't actually lower.
+  if (onSale) where.salePrice = { not: null };
 
   // Full-text search on name, description, tags — safe alongside NOT
   if (search) {

@@ -19,6 +19,10 @@ export const productQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .optional(),
+  onSale: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
   vendorId: z.string().optional(),
   sortBy: z
     .enum([
