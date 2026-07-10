@@ -20,66 +20,58 @@
  * field marked unique. The attribute is what Prisma needs; the partial index
  * is what MongoDB enforces.
  *
- * USAGE
- *   DATABASE_URL="mongodb+srv://..." npx ts-node scripts/fix-cart-userid-index.ts
- *   DATABASE_URL="mongodb+srv://..." npx ts-node scripts/fix-cart-userid-index.ts --apply
+ * WHY MONGOOSE AND NOT PRISMA
+ * `prisma.$runCommandRaw()` reads `$`-prefixed keys as tagged values (`$oid`,
+ * `$date`, …), so a `partialFilterExpression` containing `$type` fails with
+ * "Unknown tagged value". Mongoose bundles the raw MongoDB driver, which has
+ * no such restriction.
  *
- * Without `--apply` it only reports. It is idempotent: re-running once the
- * index is already partial is a no-op.
+ * USAGE
+ *   $env:DATABASE_URL = "..."   # never paste this into a chat or shell history
+ *   npm run fix:cart-index              # report only
+ *   npm run fix:cart-index -- --apply   # repair
+ *
+ * Idempotent: re-running once the index is partial is a no-op. Safe to run if
+ * a previous attempt died between the drop and the create — it will simply
+ * create the missing index.
  *
  * CAVEAT: `prisma db push` would recreate this as a plain unique index and
  * reintroduce the bug. Re-run this script if that ever happens.
  */
-import { PrismaClient } from '../generated/prisma';
+import mongoose from 'mongoose';
 
 const INDEX_NAME = 'Cart_userId_key';
 const COLLECTION = 'Cart';
 
 /** Only index carts whose userId is an actual string — excludes null AND missing. */
-const PARTIAL_FILTER = { userId: { $type: 'string' } };
+const PARTIAL_FILTER = { userId: { $type: 'string' } } as const;
 
-type MongoIndex = {
-  name: string;
-  key: Record<string, number>;
-  unique?: boolean;
-  sparse?: boolean;
-  partialFilterExpression?: Record<string, unknown>;
-};
-
-const prisma = new PrismaClient();
 const apply = process.argv.includes('--apply');
 
-async function listIndexes(): Promise<MongoIndex[]> {
-  const res = (await prisma.$runCommandRaw({ listIndexes: COLLECTION })) as unknown as {
-    cursor?: { firstBatch?: MongoIndex[] };
-  };
-  return res.cursor?.firstBatch ?? [];
-}
-
-function isAlreadyPartial(idx: MongoIndex): boolean {
-  const pfe = idx.partialFilterExpression as
-    | { userId?: { $type?: string } }
-    | undefined;
-  return pfe?.userId?.$type === 'string';
-}
-
 async function main() {
-  if (!process.env.DATABASE_URL) {
+  const uri = process.env.DATABASE_URL;
+  if (!uri) {
     console.error('DATABASE_URL is not set. Refusing to run.');
     process.exit(1);
   }
 
   console.log(`Mode: ${apply ? 'APPLY (will modify indexes)' : 'DRY RUN (report only)'}\n`);
 
-  const before = await listIndexes();
-  const target = before.find((i) => i.name === INDEX_NAME);
+  await mongoose.connect(uri);
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('Connected but no database handle — check the URI has a db name');
+  const carts = db.collection(COLLECTION);
 
+  // ── Report current indexes ────────────────────────────────────────────────
+  const indexes = await carts.indexes();
   console.log(`Indexes on "${COLLECTION}":`);
-  for (const i of before) {
+  for (const i of indexes) {
     const flags = [
       i.unique ? 'unique' : null,
       i.sparse ? 'sparse' : null,
-      i.partialFilterExpression ? `partial=${JSON.stringify(i.partialFilterExpression)}` : null,
+      i.partialFilterExpression
+        ? `partial=${JSON.stringify(i.partialFilterExpression)}`
+        : null,
     ]
       .filter(Boolean)
       .join(' ');
@@ -87,92 +79,95 @@ async function main() {
   }
   console.log();
 
-  // Count against the raw collection, not through Prisma. In MongoDB a MISSING
-  // field and an explicit `null` are different values, and Prisma's
-  // `where: { userId: null }` does not match missing fields — which is exactly
-  // the distinction this bug turns on. Ask Mongo directly.
-  const rawCount = async (query: object): Promise<number> => {
-    const command = { count: COLLECTION, query } as unknown as Parameters<
-      typeof prisma.$runCommandRaw
-    >[0];
-    const res = (await prisma.$runCommandRaw(command)) as unknown as { n?: number };
-    return res.n ?? 0;
-  };
-
-  const total = await rawCount({});
-  const withString = await rawCount({ userId: { $type: 'string' } });
-  const explicitNull = await rawCount({ userId: { $type: 'null' } });
-  const missing = await rawCount({ userId: { $exists: false } });
+  // ── Report cart shape. A MISSING field and an explicit null are different
+  // values in MongoDB, and that distinction is the whole bug — so ask the
+  // driver directly rather than going through Prisma's null semantics.
+  const total = await carts.countDocuments({});
+  const withString = await carts.countDocuments({ userId: { $type: 'string' } });
+  const explicitNull = await carts.countDocuments({ userId: { $type: 'null' } });
+  const missing = await carts.countDocuments({ userId: { $exists: false } });
 
   console.log('Carts by userId:');
   console.log(`  ${String(total).padStart(5)} total`);
   console.log(`  ${String(withString).padStart(5)} string  -> stay in the unique index (one cart per user)`);
-  console.log(`  ${String(explicitNull).padStart(5)} null    -> guest carts, collide today`);
-  console.log(`  ${String(missing).padStart(5)} missing -> guest carts, collide today`);
-  console.log(`  ${String(explicitNull + missing).padStart(5)} would be EXCLUDED by the partial index\n`);
+  console.log(`  ${String(explicitNull).padStart(5)} null    -> guest carts, excluded by the partial index`);
+  console.log(`  ${String(missing).padStart(5)} missing -> guest carts, excluded by the partial index\n`);
 
-  if (explicitNull + missing > 1) {
-    console.log('NOTE: more than one guest cart already exists, which a plain unique');
-    console.log('index should have prevented. Verify the index below is really plain.\n');
+  // ── The partial index is unique over string userIds. If duplicates exist
+  // (e.g. two carts were created for one user while the index was absent),
+  // createIndex would fail. Surface them instead of failing cryptically.
+  const dupes = await carts
+    .aggregate<{ _id: string; n: number }>([
+      { $match: { userId: { $type: 'string' } } },
+      { $group: { _id: '$userId', n: { $sum: 1 } } },
+      { $match: { n: { $gt: 1 } } },
+    ])
+    .toArray();
+
+  if (dupes.length > 0) {
+    console.error(`BLOCKED: ${dupes.length} user(s) have more than one cart:`);
+    for (const d of dupes.slice(0, 10)) console.error(`  ${d._id}: ${d.n} carts`);
+    console.error('\nA unique index cannot be created until these are merged or removed.');
+    process.exit(1);
   }
 
-  if (!target) {
-    console.log(`No "${INDEX_NAME}" index found — nothing to repair.`);
-    console.log('(If guest add-to-cart still 500s, the cause is elsewhere.)');
-    return;
-  }
+  const existing = indexes.find((i) => i.name === INDEX_NAME);
+  const isPartial =
+    (existing?.partialFilterExpression as { userId?: { $type?: string } } | undefined)?.userId
+      ?.$type === 'string';
 
-  if (isAlreadyPartial(target)) {
+  if (existing && isPartial) {
     console.log(`"${INDEX_NAME}" is ALREADY partial. Nothing to do — the bug is fixed.`);
     return;
   }
 
-  console.log(`"${INDEX_NAME}" is a PLAIN unique index. This is the bug:`);
-  console.log('  MongoDB counts a missing `userId` as a value, so only one guest');
-  console.log('  cart can exist. Every later guest gets a 500 on add-to-cart.\n');
+  if (!existing) {
+    console.log(`"${INDEX_NAME}" is MISSING — userId uniqueness is not enforced right now.`);
+    console.log('(Likely a previous run dropped it and failed before recreating.)\n');
+  } else {
+    console.log(`"${INDEX_NAME}" is a PLAIN unique index. This is the bug:`);
+    console.log('  MongoDB counts a missing `userId` as a value, so only one guest');
+    console.log('  cart can exist. Every later guest gets a 500 on add-to-cart.\n');
+  }
 
   if (!apply) {
-    console.log('Dry run — no changes made. Re-run with --apply to repair:');
-    console.log(`  1. drop   ${INDEX_NAME}`);
-    console.log(`  2. create ${INDEX_NAME} as unique + partialFilterExpression ${JSON.stringify(PARTIAL_FILTER)}`);
+    console.log('Dry run — no changes made. Re-run with --apply to repair.');
     return;
   }
 
-  // Authenticated carts are unique on userId today (the plain index enforced
-  // it), so recreating cannot fail on existing data. There is a sub-second
-  // window between drop and create where a duplicate authed cart could be
-  // inserted; the create would then fail loudly and leave the index absent,
-  // so re-run the script if that happens.
-  console.log(`Dropping ${INDEX_NAME}...`);
-  await prisma.$runCommandRaw({ dropIndexes: COLLECTION, index: INDEX_NAME });
+  if (existing) {
+    console.log(`Dropping ${INDEX_NAME}...`);
+    await carts.dropIndex(INDEX_NAME);
+  }
 
   console.log(`Creating ${INDEX_NAME} as a partial unique index...`);
-  await prisma.$runCommandRaw({
-    createIndexes: COLLECTION,
-    indexes: [
-      {
-        key: { userId: 1 },
-        name: INDEX_NAME,
-        unique: true,
-        partialFilterExpression: PARTIAL_FILTER,
-      },
-    ],
-  });
+  await carts.createIndex(
+    { userId: 1 },
+    { name: INDEX_NAME, unique: true, partialFilterExpression: PARTIAL_FILTER },
+  );
 
-  const after = (await listIndexes()).find((i) => i.name === INDEX_NAME);
-  if (!after || !isAlreadyPartial(after)) {
-    console.error('\nVERIFICATION FAILED — index is not partial. Investigate before deploying.');
+  const after = (await carts.indexes()).find((i) => i.name === INDEX_NAME);
+  const afterPartial =
+    (after?.partialFilterExpression as { userId?: { $type?: string } } | undefined)?.userId
+      ?.$type === 'string';
+
+  if (!after || !afterPartial || !after.unique) {
+    console.error('\nVERIFICATION FAILED — index is not a partial unique index.');
     process.exit(1);
   }
 
   console.log('\nVerified:');
-  console.log(`  ${after.name} ${JSON.stringify(after.key)} unique=${after.unique} partial=${JSON.stringify(after.partialFilterExpression)}`);
+  console.log(
+    `  ${after.name} ${JSON.stringify(after.key)} unique=${after.unique} partial=${JSON.stringify(after.partialFilterExpression)}`,
+  );
   console.log('\nGuest carts can now be created. Authenticated carts remain one-per-user.');
 }
 
 main()
   .catch((err) => {
     console.error('\nFAILED:', err instanceof Error ? err.message : err);
-    process.exit(1);
+    process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await mongoose.disconnect();
+  });
