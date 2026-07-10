@@ -180,17 +180,22 @@ export async function getRelatedProducts(productId: string, limit: number = 8) {
     select: { categoryId: true },
   });
 
-  if (!product?.categoryId) return [];
+  if (!product) return [];
 
-  const related = await prisma.product.findMany({
-    where: await getPublicProductWhere({
-      categoryId: product.categoryId,
-      id: { not: productId },
-    }),
-    include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
-    orderBy: { avgRating: 'desc' },
-    take: limit,
-  });
+  // Vendors can leave a product uncategorized. Such a product used to return
+  // nothing at all, bailing out before the cross-category back-fill below —
+  // so its detail page showed an empty "related" rail.
+  const related = product.categoryId
+    ? await prisma.product.findMany({
+        where: await getPublicProductWhere({
+          categoryId: product.categoryId,
+          id: { not: productId },
+        }),
+        include: { category: true, variants: true, digitalAssets: { select: { id: true, fileName: true, mimeType: true, fileSize: true, sortOrder: true } } },
+        orderBy: { avgRating: 'desc' },
+        take: limit,
+      })
+    : [];
 
   // Back-fill from other categories if needed
   if (related.length < limit) {
