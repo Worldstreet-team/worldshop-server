@@ -87,10 +87,34 @@ async function main() {
   }
   console.log();
 
-  // How many carts would the partial index exclude? (i.e. guest carts)
-  const guestCarts = await prisma.cart.count({ where: { userId: null } });
-  const totalCarts = await prisma.cart.count();
-  console.log(`Carts: ${totalCarts} total, ${guestCarts} guest (userId null/missing)\n`);
+  // Count against the raw collection, not through Prisma. In MongoDB a MISSING
+  // field and an explicit `null` are different values, and Prisma's
+  // `where: { userId: null }` does not match missing fields — which is exactly
+  // the distinction this bug turns on. Ask Mongo directly.
+  const rawCount = async (query: object): Promise<number> => {
+    const command = { count: COLLECTION, query } as unknown as Parameters<
+      typeof prisma.$runCommandRaw
+    >[0];
+    const res = (await prisma.$runCommandRaw(command)) as unknown as { n?: number };
+    return res.n ?? 0;
+  };
+
+  const total = await rawCount({});
+  const withString = await rawCount({ userId: { $type: 'string' } });
+  const explicitNull = await rawCount({ userId: { $type: 'null' } });
+  const missing = await rawCount({ userId: { $exists: false } });
+
+  console.log('Carts by userId:');
+  console.log(`  ${String(total).padStart(5)} total`);
+  console.log(`  ${String(withString).padStart(5)} string  -> stay in the unique index (one cart per user)`);
+  console.log(`  ${String(explicitNull).padStart(5)} null    -> guest carts, collide today`);
+  console.log(`  ${String(missing).padStart(5)} missing -> guest carts, collide today`);
+  console.log(`  ${String(explicitNull + missing).padStart(5)} would be EXCLUDED by the partial index\n`);
+
+  if (explicitNull + missing > 1) {
+    console.log('NOTE: more than one guest cart already exists, which a plain unique');
+    console.log('index should have prevented. Verify the index below is really plain.\n');
+  }
 
   if (!target) {
     console.log(`No "${INDEX_NAME}" index found — nothing to repair.`);
