@@ -199,15 +199,36 @@ export async function addToCart(
       data: { quantity: newQuantity },
     });
   } else {
-    // Add new item
-    await prisma.cartItem.create({
-      data: {
-        cartId: cart.id,
-        productId,
-        variantId: variantId || null,
-        quantity,
-      },
-    });
+    // Add new item. The findFirst above is check-then-act: two concurrent adds
+    // of the same line both see "no existing item" and both insert, and the
+    // loser trips the @@unique([cartId, productId, variantId]) index. Treat
+    // that collision as the update branch instead of failing the request.
+    try {
+      await prisma.cartItem.create({
+        data: {
+          cartId: cart.id,
+          productId,
+          variantId: variantId || null,
+          quantity,
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'P2002') throw err;
+
+      const raced = await prisma.cartItem.findFirst({
+        where: { cartId: cart.id, productId, variantId: variantId || null },
+      });
+      if (!raced) throw err;
+
+      const newQuantity = Math.min(
+        raced.quantity + quantity,
+        isDigital ? Number.MAX_SAFE_INTEGER : availableStock,
+      );
+      await prisma.cartItem.update({
+        where: { id: raced.id },
+        data: { quantity: newQuantity },
+      });
+    }
   }
 
   // Return updated cart

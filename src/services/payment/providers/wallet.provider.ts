@@ -32,29 +32,62 @@ const REF_PREFIX = 'WSWALLET';
 // ── FX: USD/NGN with a short TTL cache (mirrors the wallet's fx-actions) ──
 
 const FX_TTL_MS = 120_000;
+const FX_FETCH_TIMEOUT_MS = 8_000;
 let fxCache: { at: number; rate: number } | null = null;
+
+/**
+ * Rate sources, tried in order. CoinGecko matches what the wallet service
+ * quotes elsewhere, so it leads — but its free tier rate-limits datacenter
+ * IPs, which is exactly what this server runs on. open.er-api.com is the
+ * datacenter-friendly backstop (it tracks CoinGecko to within ~0.05%).
+ */
+const FX_SOURCES: Array<{ name: string; url: string; extract: (json: any) => unknown }> = [
+  {
+    name: 'coingecko',
+    url: 'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=ngn',
+    extract: (json) => json?.tether?.ngn,
+  },
+  {
+    name: 'open.er-api.com',
+    url: 'https://open.er-api.com/v6/latest/USD',
+    extract: (json) => json?.rates?.NGN,
+  },
+];
 
 export async function getUsdNgnRate(): Promise<number> {
   if (fxCache && Date.now() - fxCache.at < FX_TTL_MS) return fxCache.rate;
 
-  const res = await fetch(
-    'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=ngn',
-    { signal: AbortSignal.timeout(5_000) },
-  ).catch(() => null);
-
-  if (res?.ok) {
-    const data = (await res.json()) as { tether?: { ngn?: number } };
-    const ngn = data?.tether?.ngn;
-    if (typeof ngn === 'number' && ngn > 0) {
-      fxCache = { at: Date.now(), rate: Math.round(ngn) };
-      return fxCache.rate;
+  for (const source of FX_SOURCES) {
+    try {
+      const res = await fetch(source.url, {
+        signal: AbortSignal.timeout(FX_FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        logger.warn('[Wallet] FX source returned non-OK', {
+          source: source.name,
+          status: res.status,
+        });
+        continue;
+      }
+      const rate = source.extract(await res.json());
+      if (typeof rate === 'number' && rate > 0) {
+        fxCache = { at: Date.now(), rate: Math.round(rate) };
+        logger.info('[Wallet] FX rate refreshed', { source: source.name, rate: fxCache.rate });
+        return fxCache.rate;
+      }
+      logger.warn('[Wallet] FX source returned no usable rate', { source: source.name });
+    } catch (err) {
+      logger.warn('[Wallet] FX source unreachable', {
+        source: source.name,
+        error: (err as Error).message,
+      });
     }
   }
 
   // A stale rate beats no rate — better to quote slightly off than to block
   // checkout on a third-party hiccup. Hard-fail only with nothing cached.
   if (fxCache) {
-    logger.warn('[Wallet] FX refresh failed — using stale USD/NGN rate', {
+    logger.warn('[Wallet] All FX sources failed — using stale USD/NGN rate', {
       ageMs: Date.now() - fxCache.at,
     });
     return fxCache.rate;
