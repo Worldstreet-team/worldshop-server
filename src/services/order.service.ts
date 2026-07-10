@@ -11,7 +11,7 @@ import type {
   CancelOrderInput,
 } from '../validators/order.validator';
 import { calculateShipping } from '../types/cart.types';
-import { isDigitalOnlyCart } from './checkout.service';
+import { isDigitalOnlyCart, unwindWalletHoldForSession } from './checkout.service';
 import { OrderStatus } from '../../generated/prisma';
 import { signR2Key, signProductImages } from '../utils/signUrl';
 
@@ -344,52 +344,83 @@ export async function cancelOrder(
     );
   }
 
-  // Cancel order and restore stock
-  const updatedOrder = await prisma.$transaction(async (tx) => {
-    // Update order status
-    const updated = await tx.order.update({
-      where: { id: orderId },
-      data: {
-        status: OrderStatus.CANCELLED,
-        statusHistory: {
-          create: {
-            status: OrderStatus.CANCELLED,
-            note: input?.reason || 'Cancelled by customer',
-          },
-        },
-      },
-      include: {
-        items: {
-          include: {
-            product: true,
-            variant: true,
-          },
-        },
-        statusHistory: {
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+  // A checkout creates one order per vendor but authorizes ONE payment for the
+  // whole session, so a hold can't be released while its sibling orders live
+  // on. Cancelling any unpaid order therefore abandons the session: release the
+  // buyer's held funds, fail the payment, and cancel every order it covered.
+  const sessionId = order.checkoutSessionId;
+  if (sessionId) {
+    const unwound = await unwindWalletHoldForSession(sessionId);
+    if (!unwound) {
+      throw createError(
+        409,
+        'This order is being paid for right now and can no longer be cancelled. Refresh and try again.',
+      );
+    }
+  }
 
-    // Restore stock
-    for (const item of order.items) {
-      if (item.variantId) {
-        await tx.productVariant.update({
-          where: { id: item.variantId },
-          data: { stock: { increment: item.quantity } },
-        });
-      } else {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
-        });
+  const doomed = sessionId
+    ? await prisma.order.findMany({
+        where: { checkoutSessionId: sessionId, status: OrderStatus.CREATED },
+        include: { items: { include: { product: { select: { type: true } } } } },
+      })
+    : [{ ...order, items: await withItemTypes(order.items) }];
+
+  await prisma.$transaction(async (tx) => {
+    for (const doomedOrder of doomed) {
+      const updated = await tx.order.updateMany({
+        where: { id: doomedOrder.id, status: OrderStatus.CREATED },
+        data: { status: OrderStatus.CANCELLED },
+      });
+      if (updated.count === 0) continue; // someone else got there first
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: doomedOrder.id,
+          status: OrderStatus.CANCELLED,
+          note: input?.reason || 'Cancelled by customer',
+        },
+      });
+
+      // Restore stock. Digital products were never decremented at checkout, so
+      // incrementing them here would inflate their stock.
+      for (const item of doomedOrder.items) {
+        if (item.product?.type === 'DIGITAL') continue;
+        if (item.variantId) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { increment: item.quantity } },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
       }
     }
-
-    return updated;
   });
 
-  return formatOrderResponse(updatedOrder);
+  const refreshed = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: { include: { product: true, variant: true } },
+      statusHistory: { orderBy: { createdAt: 'desc' } },
+    },
+  });
+  if (!refreshed) throw createError(404, 'Order not found');
+
+  return formatOrderResponse(refreshed);
+}
+
+/** Attach each item's product type, which the stock restore needs. */
+async function withItemTypes(items: Array<{ productId: string; variantId: string | null; quantity: number }>) {
+  const products = await prisma.product.findMany({
+    where: { id: { in: items.map((i) => i.productId) } },
+    select: { id: true, type: true },
+  });
+  const typeById = new Map(products.map((p) => [p.id, p.type]));
+  return items.map((i) => ({ ...i, product: { type: typeById.get(i.productId) ?? 'PHYSICAL' } }));
 }
 
 /**

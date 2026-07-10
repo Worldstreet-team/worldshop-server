@@ -35,7 +35,7 @@ export function isDigitalOnlyCart(
  * reached to find out — cancelling then would leave the buyer paying for
  * nothing. In those cases the session is left alone and retried next sweep.
  */
-async function unwindWalletHoldForSession(checkoutSessionId: string): Promise<boolean> {
+export async function unwindWalletHoldForSession(checkoutSessionId: string): Promise<boolean> {
   const payment = await prisma.payment.findUnique({ where: { checkoutSessionId } });
 
   // Nothing was ever authorized against the wallet — cancel freely.
