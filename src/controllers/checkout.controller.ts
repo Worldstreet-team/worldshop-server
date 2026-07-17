@@ -42,7 +42,10 @@ export const previewCheckoutSession = catchAsync(
       });
     }
 
-    const preview = await checkoutService.previewCheckoutSession(userId);
+    const preview = await checkoutService.previewCheckoutSession(
+      userId,
+      req.body?.shippingMethodId,
+    );
 
     res.status(200).json({
       success: true,
@@ -118,7 +121,7 @@ export const initializePayment = catchAsync(
       userId,
       userEmail,
       checkoutSessionId,
-      provider || 'MOCK',
+      provider || 'WALLET',
     );
 
     res.status(200).json({

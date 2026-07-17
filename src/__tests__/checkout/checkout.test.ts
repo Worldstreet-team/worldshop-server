@@ -11,7 +11,7 @@ import {
   handleWebhook,
   verifyPayment,
 } from '../../services/payment.service';
-import { OrderStatus, PaymentStatus } from '../../../generated/prisma';
+import { OrderStatus, PaymentStatus, PaymentProvider } from '../../../generated/prisma';
 
 const PREFIX = 'checkout-test';
 
@@ -397,6 +397,7 @@ describe('mock payment service', () => {
       buyer.userId,
       buyer.email,
       session.checkoutSessionId,
+      PaymentProvider.MOCK,
     );
 
     expect(result.transactionRef).toMatch(/^WS-PAY-/);
@@ -422,6 +423,7 @@ describe('mock payment service', () => {
       buyer.userId,
       buyer.email,
       session.checkoutSessionId,
+      PaymentProvider.MOCK,
     );
 
     const webhookResult = await handleWebhook(
@@ -458,6 +460,7 @@ describe('mock payment service', () => {
       buyer.userId,
       buyer.email,
       session.checkoutSessionId,
+      PaymentProvider.MOCK,
     );
 
     const webhookResult = await handleWebhook(
@@ -492,6 +495,7 @@ describe('mock payment service', () => {
       buyer.userId,
       buyer.email,
       session.checkoutSessionId,
+      PaymentProvider.MOCK,
     );
 
     // First confirm
@@ -522,6 +526,7 @@ describe('mock payment service', () => {
       buyer.userId,
       buyer.email,
       session.checkoutSessionId,
+      PaymentProvider.MOCK,
     );
 
     // Before webhook — pending

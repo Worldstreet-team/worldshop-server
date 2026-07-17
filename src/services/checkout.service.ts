@@ -13,6 +13,13 @@ import type {
 } from '../types/order.types';
 import { signR2Key } from '../utils/signUrl';
 import { calculateShipping } from '../types/cart.types';
+import {
+  resolveShippingMethod,
+  computeGroupShipping,
+  computeExpectedDeliveryDate,
+  shippingMethodSummary,
+  type ShippingMethodWithPartner,
+} from './shipping.service';
 import { globalLog as logger } from '../configs/loggerConfig';
 import { assertProductPurchasable } from './product-eligibility.service';
 
@@ -301,6 +308,7 @@ function computeSnapshotToken(
 
 async function groupItemsByVendor(
   items: CartItemWithProduct[],
+  shippingMethod: ShippingMethodWithPartner | null = null,
 ): Promise<VendorGroup[]> {
   // Collect unique vendor IDs (null for platform-owned)
   const vendorIds = [
@@ -375,7 +383,7 @@ async function groupItemsByVendor(
 
     const subtotal = vendorItems.reduce((s, i) => s + i.totalPrice, 0);
     const allDigital = vendorItems.every((i) => i.type === 'DIGITAL');
-    const shipping = allDigital ? 0 : calculateShipping(subtotal);
+    const shipping = allDigital ? 0 : computeGroupShipping(shippingMethod, subtotal);
 
     groups.push({
       vendorId: vendorId || null,
@@ -394,6 +402,7 @@ async function groupItemsByVendor(
 
 export async function previewCheckoutSession(
   userId: string,
+  shippingMethodId?: string | null,
 ): Promise<CheckoutSessionPreview> {
   const cart = await prisma.cart.findUnique({
     where: { userId },
@@ -446,9 +455,12 @@ export async function previewCheckoutSession(
   }
 
   const snapshotToken = computeSnapshotToken(items);
-  const vendorGroups = await groupItemsByVendor(items);
-
   const requiresShipping = !isDigitalOnlyCart(items);
+
+  const shippingMethod = requiresShipping
+    ? await resolveShippingMethod(shippingMethodId)
+    : null;
+  const vendorGroups = await groupItemsByVendor(items, shippingMethod);
 
   const subtotal = vendorGroups.reduce((s, g) => s + g.subtotal, 0);
   const shipping = vendorGroups.reduce((s, g) => s + g.shipping, 0);
@@ -463,6 +475,7 @@ export async function previewCheckoutSession(
     vendorGroups,
     issues,
     requiresShipping,
+    shippingMethod: shippingMethod ? shippingMethodSummary(shippingMethod) : null,
     summary: {
       orderCount: vendorGroups.length,
       subtotal,
@@ -548,6 +561,14 @@ export async function confirmCheckoutSession(
   if (!digitalOnly && !shippingAddress) {
     throw createError(400, 'Shipping address is required for physical orders');
   }
+
+  // Resolve the delivery method once for the whole session (per-shipment price)
+  const shippingMethod = digitalOnly
+    ? null
+    : await resolveShippingMethod(input.shippingMethodId);
+  const expectedDeliveryDate = shippingMethod
+    ? computeExpectedDeliveryDate(shippingMethod)
+    : null;
 
   // C2 FIX: Validate stock AND decrement INSIDE the same transaction
   const createdOrders = await prisma.$transaction(async (tx) => {
@@ -648,7 +669,9 @@ export async function confirmCheckoutSession(
       const groupDigitalOnly = groupItems.every(
         (i) => i.product.type === 'DIGITAL',
       );
-      const shipping = groupDigitalOnly ? 0 : calculateShipping(subtotal);
+      const shipping = groupDigitalOnly
+        ? 0
+        : computeGroupShipping(shippingMethod, subtotal);
       const total = subtotal + shipping;
 
       const newOrder = await tx.order.create({
@@ -660,6 +683,10 @@ export async function confirmCheckoutSession(
           status: OrderStatus.CREATED,
           shippingAddress: groupDigitalOnly ? undefined : shippingAddress,
           billingAddress: input.billingAddress as object | undefined,
+          shippingMethodId: groupDigitalOnly ? undefined : shippingMethod?.id,
+          shippingMethodName: groupDigitalOnly ? undefined : shippingMethod?.name,
+          deliveryPartnerName: groupDigitalOnly ? undefined : shippingMethod?.partner.name,
+          expectedDeliveryDate: groupDigitalOnly ? undefined : expectedDeliveryDate,
           notes: input.notes,
           subtotal,
           shipping,

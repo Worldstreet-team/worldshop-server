@@ -1,4 +1,4 @@
-import type { PaymentProvider as PaymentProviderEnum } from '../../../generated/prisma';
+import createError from 'http-errors';
 import type { PaymentServiceInterface, PaymentProviderType } from '../../types/payment.types';
 import { mockPaymentProvider } from './providers/mock.provider';
 import { flutterwavePaymentProvider } from './providers/flutterwave.provider';
@@ -13,14 +13,17 @@ function registerProvider(name: PaymentProviderType, provider: PaymentServiceInt
 function getRegisteredProvider(name: PaymentProviderType): PaymentServiceInterface {
   const provider = providerRegistry.get(name);
   if (!provider) {
-    return mockPaymentProvider;
+    // No silent mock fallback — an unregistered provider must never be able
+    // to complete an order for free.
+    throw createError(400, 'Payment provider not available');
   }
   return provider;
 }
 
 registerProvider('MOCK' as PaymentProviderType, mockPaymentProvider);
+// Kept registered so pre-cutover FLUTTERWAVE payments can still verify;
+// new payments are wallet-only (see ALLOWED_PROVIDERS in the orchestrator).
 registerProvider('FLUTTERWAVE' as PaymentProviderType, flutterwavePaymentProvider);
-registerProvider('CRYPTO' as PaymentProviderType, mockPaymentProvider);
 registerProvider('WALLET' as PaymentProviderType, walletPaymentProvider);
 
 const paymentProviders = {

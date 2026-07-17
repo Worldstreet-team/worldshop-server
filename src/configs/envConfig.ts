@@ -25,9 +25,12 @@ const {
   WALLET_SERVICE_TOKEN,
 } = process.env;
 
-export { 
-  PORT, 
-  NODE_ENV, 
+/** True under `npm start` (NODE_ENV=prod) and conventional 'production'. */
+export const IS_PROD = NODE_ENV === 'prod' || NODE_ENV === 'production';
+
+export {
+  PORT,
+  NODE_ENV,
   MONGO_URI, 
   SENTRY_DSN,
   DATABASE_URL,

@@ -427,6 +427,37 @@ async function withItemTypes(items: Array<{ productId: string; variantId: string
  * Format order for API response.
  * Signs R2 image keys in order items.
  */
+/**
+ * Carrier tracking link from the partner's URL template ("{tracking}" is
+ * replaced with the waybill). Cached in-process — partners rarely change.
+ */
+const partnerTemplateCache = new Map<string, { at: number; template: string | null }>();
+const PARTNER_TEMPLATE_TTL_MS = 5 * 60_000;
+
+async function buildTrackingUrl(
+  partnerName: string | null,
+  trackingNumber: string | null,
+): Promise<string | null> {
+  if (!partnerName || !trackingNumber) return null;
+
+  const cached = partnerTemplateCache.get(partnerName);
+  let template: string | null;
+  if (cached && Date.now() - cached.at < PARTNER_TEMPLATE_TTL_MS) {
+    template = cached.template;
+  } else {
+    const partner = await prisma.deliveryPartner.findUnique({
+      where: { name: partnerName },
+      select: { trackingUrlTemplate: true },
+    });
+    template = partner?.trackingUrlTemplate ?? null;
+    partnerTemplateCache.set(partnerName, { at: Date.now(), template });
+  }
+
+  return template
+    ? template.replace('{tracking}', encodeURIComponent(trackingNumber))
+    : null;
+}
+
 export async function formatOrderResponse(order: {
   id: string;
   orderNumber: string;
@@ -442,6 +473,10 @@ export async function formatOrderResponse(order: {
   total: number;
   couponCode: string | null;
   notes: string | null;
+  shippingMethodName?: string | null;
+  deliveryPartnerName?: string | null;
+  expectedDeliveryDate?: Date | null;
+  trackingNumber?: string | null;
   createdAt: Date;
   updatedAt: Date;
   paidAt: Date | null;
@@ -528,6 +563,14 @@ export async function formatOrderResponse(order: {
     total: order.total,
     couponCode: order.couponCode,
     notes: order.notes,
+    shippingMethodName: order.shippingMethodName ?? null,
+    deliveryPartnerName: order.deliveryPartnerName ?? null,
+    expectedDeliveryDate: order.expectedDeliveryDate ?? null,
+    trackingNumber: order.trackingNumber ?? null,
+    trackingUrl: await buildTrackingUrl(
+      order.deliveryPartnerName ?? null,
+      order.trackingNumber ?? null,
+    ),
     items: signedItems,
     statusHistory: order.statusHistory.map((h) => ({
       id: h.id,

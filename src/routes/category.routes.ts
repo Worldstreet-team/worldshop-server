@@ -5,6 +5,7 @@ const router = Router();
 
 // Static routes first
 router.get('/featured', categoryController.getFeaturedCategories);
+router.get('/id/:id/attributes', categoryController.getCategoryAttributesHandler);
 router.get('/id/:id', categoryController.getCategoryById);
 
 // Full listing

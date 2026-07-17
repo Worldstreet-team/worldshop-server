@@ -119,10 +119,33 @@ model Category {
   sortOrder   Int        @default(0)
   isActive    Boolean    @default(true)
 
+  attributes  CategoryAttribute[]
+
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   @@index([parentId])
+}
+
+// Listing standards per category: which product/variant attributes a vendor
+// must (or may) provide. SELECT attributes constrain values to `options`.
+model CategoryAttribute {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId String   @db.ObjectId
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name       String   // e.g. "Size", "Color", "Material"
+  type       String   @default("SELECT") // SELECT, TEXT, NUMBER
+  options    String[] // Allowed values when type=SELECT
+  isRequired Boolean  @default(false)
+  appliesTo  String   @default("VARIANT") // PRODUCT or VARIANT
+  sortOrder  Int      @default(0)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
 }
 
 // ============================================
@@ -150,6 +173,9 @@ model Product {
   approvalStatus String          @default("APPROVED") // PENDING, APPROVED, REJECTED
 
   brand         String?
+  material      String?
+  weightGrams   Int?             // Shipping weight in grams
+  dimensions    Json?            // { length, width, height, unit: "cm" }
   tags          String[]
   images        Json       @default("[]") // Array of { key, alt, isPrimary, sortOrder }
 
@@ -242,13 +268,57 @@ model CartItem {
 // ============================================
 
 enum OrderStatus {
-  CREATED      // Order created, awaiting payment
-  PAID         // Payment confirmed
-  PROCESSING   // Being prepared for shipment
-  SHIPPED      // Shipped to customer
-  DELIVERED    // Delivered to customer
-  CANCELLED    // Cancelled by user or admin
-  REFUNDED     // Full refund issued
+  CREATED          // Order created, awaiting payment
+  PAID             // Payment confirmed
+  PROCESSING       // Being prepared for shipment
+  PACKAGED         // Packed and ready for pickup by the delivery partner
+  SHIPPED          // Handed to the delivery partner (tracking number set)
+  OUT_FOR_DELIVERY // With the courier for final delivery
+  DELIVERED        // Delivered to customer
+  DELIVERY_FAILED  // Delivery attempt failed — re-attempt or refund
+  CANCELLED        // Cancelled by user or admin
+  REFUNDED         // Full refund issued
+}
+
+// ============================================
+// DELIVERY
+// Delivery partners (carriers) and the shipping methods they offer.
+// Method price is per vendor shipment (each vendor order ships separately).
+// ============================================
+
+model DeliveryPartner {
+  id                  String           @id @default(auto()) @map("_id") @db.ObjectId
+  name                String           @unique
+  logo                String?
+  // e.g. "https://tracking.gigl.ng/?waybill={tracking}" — {tracking} is replaced
+  trackingUrlTemplate String?
+  isActive            Boolean          @default(true)
+  sortOrder           Int              @default(0)
+
+  methods             ShippingMethod[]
+
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+}
+
+model ShippingMethod {
+  id        String          @id @default(auto()) @map("_id") @db.ObjectId
+  partnerId String          @db.ObjectId
+  partner   DeliveryPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  name      String          // "Standard Delivery", "Express"
+  price     Float           // NGN per vendor shipment
+  freeAbove Float?          // free when the shipment subtotal reaches this
+  minDays   Int             // estimated delivery window (calendar days)
+  maxDays   Int
+  isActive  Boolean         @default(true)
+  sortOrder Int             @default(0)
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([partnerId])
+  @@index([isActive])
 }
 
 model Order {
@@ -271,6 +341,13 @@ model Order {
   shipping        Float                @default(0)
   discount        Float                @default(0)
   total           Float
+
+  // Delivery (snapshotted at checkout so later method edits don't rewrite history)
+  shippingMethodId     String?
+  shippingMethodName   String?
+  deliveryPartnerName  String?
+  expectedDeliveryDate DateTime?
+  trackingNumber       String?   // Delivery partner waybill, set when SHIPPED
 
   couponCode      String?
   notes           String?

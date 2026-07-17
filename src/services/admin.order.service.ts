@@ -12,6 +12,7 @@ import { sendDigitalProductDelivery } from './email.service';
 import { createDownloadRecords } from './download.service';
 import { globalLog as logger } from '../configs/loggerConfig';
 import { reverseOrderSettlement } from './ledger.write.service';
+import { refundWalletCapture } from './payment/providers/wallet.provider';
 
 // ─── Valid status transitions ───────────────────────────────────
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -22,11 +23,33 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
     OrderStatus.REFUNDED,
   ],
   [OrderStatus.PROCESSING]: [
+    OrderStatus.PACKAGED,
     OrderStatus.SHIPPED,
     OrderStatus.CANCELLED,
     OrderStatus.REFUNDED,
   ],
-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED, OrderStatus.REFUNDED],
+  [OrderStatus.PACKAGED]: [
+    OrderStatus.SHIPPED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REFUNDED,
+  ],
+  [OrderStatus.SHIPPED]: [
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERED,
+    OrderStatus.DELIVERY_FAILED,
+    OrderStatus.REFUNDED,
+  ],
+  [OrderStatus.OUT_FOR_DELIVERY]: [
+    OrderStatus.DELIVERED,
+    OrderStatus.DELIVERY_FAILED,
+    OrderStatus.REFUNDED,
+  ],
+  // Failed deliveries resolve to a re-attempt, a refund, or a cancellation
+  [OrderStatus.DELIVERY_FAILED]: [
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.REFUNDED,
+    OrderStatus.CANCELLED,
+  ],
   [OrderStatus.DELIVERED]: [OrderStatus.REFUNDED],
   [OrderStatus.CANCELLED]: [],
   [OrderStatus.REFUNDED]: [],
@@ -285,14 +308,37 @@ export async function updateOrderStatus(
   if (newStatus === OrderStatus.SHIPPED) {
     updateData.shippedAt = new Date();
     if (input.trackingNumber) {
-      updateData.notes = order.notes
-        ? `${order.notes}\nTracking: ${input.trackingNumber}`
-        : `Tracking: ${input.trackingNumber}`;
+      // Structured field (was previously buried in free-text notes)
+      updateData.trackingNumber = input.trackingNumber;
     }
   } else if (newStatus === OrderStatus.DELIVERED) {
     updateData.deliveredAt = new Date();
   } else if (newStatus === OrderStatus.REFUNDED) {
     updateData.refundedAt = new Date();
+  }
+
+  // For wallet-paid orders, return the money BEFORE marking the order
+  // refunded — if the credit fails, the order must stay in its current state
+  // so the admin sees the error and can retry (the wallet dedupes the credit
+  // by reference, so a retry never double-pays).
+  let walletRefundMinor: number | null = null;
+  if (newStatus === OrderStatus.REFUNDED && order.checkoutSessionId) {
+    const payment = await prisma.payment.findUnique({
+      where: { checkoutSessionId: order.checkoutSessionId },
+    });
+    if (
+      payment?.provider === 'WALLET' &&
+      payment.status === 'COMPLETED' &&
+      payment.transactionRef
+    ) {
+      const { refundedMinor } = await refundWalletCapture({
+        transactionRef: payment.transactionRef,
+        refundNgn: order.total,
+        reference: orderId,
+        reason: input.note || `Order ${order.orderNumber} refunded by admin`,
+      });
+      walletRefundMinor = refundedMinor;
+    }
   }
 
   // Handle cancellation — restore stock for physical products
@@ -337,14 +383,24 @@ export async function updateOrderStatus(
       return updated;
     });
 
-    // C6 FIX: Log that payment refund needs manual processing
     if (newStatus === OrderStatus.REFUNDED) {
       await reverseOrderSettlement(orderId);
-      logger.warn('[Refund] MANUAL ACTION REQUIRED — Payment refund not yet integrated. Order status set to REFUNDED but customer payment has NOT been returned.', {
-        orderId,
-        orderNumber: order.orderNumber,
-        adminId,
-      });
+      if (walletRefundMinor !== null) {
+        logger.info('[Refund] Customer refunded to WorldStreet wallet', {
+          orderId,
+          orderNumber: order.orderNumber,
+          refundedUsdMinor: walletRefundMinor,
+          adminId,
+        });
+      } else {
+        // Non-wallet payments (pre-cutover Flutterwave, mock) still need a
+        // human to return the money.
+        logger.warn('[Refund] MANUAL ACTION REQUIRED — order refunded but the customer payment was not made through the wallet and has NOT been returned automatically.', {
+          orderId,
+          orderNumber: order.orderNumber,
+          adminId,
+        });
+      }
     }
 
     return formatAdminOrderResponse(updatedOrder);

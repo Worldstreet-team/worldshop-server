@@ -9,8 +9,11 @@ export const vendorOrdersQuerySchema = z.object({
       'CREATED',
       'PAID',
       'PROCESSING',
+      'PACKAGED',
       'SHIPPED',
+      'OUT_FOR_DELIVERY',
       'DELIVERED',
+      'DELIVERY_FAILED',
       'CANCELLED',
       'REFUNDED',
     ])
@@ -24,10 +27,39 @@ export const vendorOrdersQuerySchema = z.object({
 export type VendorOrdersQueryInput = z.infer<typeof vendorOrdersQuerySchema>;
 
 // ─── Update vendor order status ─────────────────────────────────
-// Vendors can only set PROCESSING or DELIVERED
-export const updateVendorOrderStatusSchema = z.object({
-  status: z.enum(['PROCESSING', 'DELIVERED']),
+// Vendors drive fulfilment: PROCESSING → PACKAGED → SHIPPED (tracking number
+// required) → OUT_FOR_DELIVERY → DELIVERED, plus DELIVERY_FAILED.
+export const updateVendorOrderStatusSchema = z
+  .object({
+    status: z.enum([
+      'PROCESSING',
+      'PACKAGED',
+      'SHIPPED',
+      'OUT_FOR_DELIVERY',
+      'DELIVERED',
+      'DELIVERY_FAILED',
+    ]),
+    trackingNumber: z.string().min(3).max(100).optional(),
+    note: z.string().max(500).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === 'SHIPPED' && !data.trackingNumber) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['trackingNumber'],
+        message: 'A tracking number is required to mark an order as shipped',
+      });
+    }
+  });
+
+export type UpdateVendorOrderStatusInput = z.infer<typeof updateVendorOrderStatusSchema>;
+
+// ─── Extend expected delivery date (delayed delivery) ───────────
+export const extendDeliveryDateSchema = z.object({
+  expectedDeliveryDate: z.coerce.date().refine((d) => d.getTime() > Date.now(), {
+    message: 'The new expected delivery date must be in the future',
+  }),
   note: z.string().max(500).optional(),
 });
 
-export type UpdateVendorOrderStatusInput = z.infer<typeof updateVendorOrderStatusSchema>;
+export type ExtendDeliveryDateInput = z.infer<typeof extendDeliveryDateSchema>;

@@ -13,6 +13,7 @@ import type {
   VendorUpdateProductInput,
   ProductListQueryInput,
 } from '../validators/product.management.validator';
+import { assertListingStandards, annotateCompliance } from './listing-standards.service';
 
 // ─── Context ────────────────────────────────────────────────────
 
@@ -117,7 +118,13 @@ export class ProductService {
       prisma.product.count({ where }),
     ]);
 
-    return paginatedResult(products as unknown as ProductWithRelations[], total, page, limit);
+    let items = products as unknown as ProductWithRelations[];
+    if (this.context.role === 'vendor') {
+      // Flag pre-standards listings so the vendor UI can show "update required"
+      items = (await annotateCompliance(items as never)) as unknown as ProductWithRelations[];
+    }
+
+    return paginatedResult(items, total, page, limit);
   }
 
   // ── Get ─────────────────────────────────────────────────────────
@@ -134,6 +141,11 @@ export class ProductService {
 
     if (this.context.role === 'vendor' && product.vendorId !== this.context.vendorId) {
       throw createError(403, 'You do not have access to this product');
+    }
+
+    if (this.context.role === 'vendor') {
+      const [annotated] = await annotateCompliance([product as never]);
+      return annotated as unknown as ProductWithRelations;
     }
 
     return product as unknown as ProductWithRelations;
@@ -154,6 +166,24 @@ export class ProductService {
     // Ownership check for vendors
     if (this.context.role === 'vendor') {
       await this.ensureOwnership(productId);
+
+      // Listing standards apply to the MERGED state, so editing an older
+      // (pre-standards) listing brings it up to the current requirements.
+      const existing = await prisma.product.findUnique({
+        where: { id: productId },
+        include: { variants: true },
+      });
+      if (existing) {
+        const vendorInput = input as VendorUpdateProductInput;
+        await assertListingStandards({
+          categoryId: vendorInput.categoryId !== undefined ? vendorInput.categoryId : existing.categoryId,
+          type: vendorInput.type ?? existing.type,
+          images: vendorInput.images !== undefined ? vendorInput.images : existing.images,
+          brand: vendorInput.brand !== undefined ? vendorInput.brand : existing.brand,
+          material: vendorInput.material !== undefined ? vendorInput.material : existing.material,
+          variants: vendorInput.variants !== undefined ? vendorInput.variants.map((v) => ({ attributes: v.attributes })) : existing.variants,
+        });
+      }
     }
 
     const { variants, ...productData } = input as AdminUpdateProductInput;
@@ -318,6 +348,16 @@ export class ProductService {
 
   private async createVendorProduct(input: VendorCreateProductInput): Promise<ProductWithRelations> {
     const { variants, ...productData } = input;
+
+    await assertListingStandards({
+      categoryId: productData.categoryId ?? null,
+      type: productData.type ?? 'DIGITAL',
+      images: productData.images ?? [],
+      brand: productData.brand,
+      material: productData.material,
+      variants: (variants ?? []).map((v) => ({ attributes: v.attributes ?? {} })),
+    });
+
     const slug = await this.generateUniqueSlug(productData.name);
     const sku = this.generateVendorSku();
 

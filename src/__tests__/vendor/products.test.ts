@@ -48,9 +48,18 @@ async function cleanupTestData() {
   await prisma.userProfile.deleteMany({ where: { userId: { startsWith: 'vendor-' } } });
 }
 
+// Listing standards require every vendor product to carry a category
+let testCategoryId: string;
+
 describe('ProductService', () => {
   beforeAll(async () => {
     await cleanupTestData();
+    const category = await prisma.category.upsert({
+      where: { slug: 'vendor-products-test-cat' },
+      create: { name: 'Vendor Products Test', slug: 'vendor-products-test-cat' },
+      update: {},
+    });
+    testCategoryId = category.id;
   });
 
   afterEach(async () => {
@@ -77,6 +86,7 @@ describe('ProductService', () => {
       name: 'E-Book Guide',
       description: 'A digital guide to everything',
       basePrice: 5000,
+      categoryId: testCategoryId,
       tags: ['ebook', 'guide'],
       images: [],
     });
@@ -98,6 +108,7 @@ describe('ProductService', () => {
       name: 'My Product',
       description: 'First product',
       basePrice: 1000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -106,6 +117,7 @@ describe('ProductService', () => {
       name: 'My Product',
       description: 'Second product with same name',
       basePrice: 2000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -123,6 +135,7 @@ describe('ProductService', () => {
       name: 'Template Pack',
       description: 'Various templates',
       basePrice: 10000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
       variants: [
@@ -145,6 +158,7 @@ describe('ProductService', () => {
       name: 'Admin Physical Product',
       description: 'A physical product',
       basePrice: 15000,
+      categoryId: testCategoryId,
       stockKeepingUnit: 'TEST-ADMIN-001',
       type: 'PHYSICAL',
       stock: 50,
@@ -169,6 +183,7 @@ describe('ProductService', () => {
       name: 'Vendor1 Product',
       description: 'From vendor 1',
       basePrice: 500,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -177,6 +192,7 @@ describe('ProductService', () => {
       name: 'Vendor2 Product',
       description: 'From vendor 2',
       basePrice: 600,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -203,8 +219,8 @@ describe('ProductService', () => {
     const svc2 = new ProductService(vendorContext(vendor2.userId));
     const adminSvc = new ProductService(adminContext());
 
-    await svc1.create({ name: 'V1 Product', description: 'v1', basePrice: 500, tags: [], images: [] });
-    await svc2.create({ name: 'V2 Product', description: 'v2', basePrice: 600, tags: [], images: [] });
+    await svc1.create({ name: 'V1 Product', description: 'v1', basePrice: 500, categoryId: testCategoryId, tags: [], images: [] });
+    await svc2.create({ name: 'V2 Product', description: 'v2', basePrice: 600, categoryId: testCategoryId, tags: [], images: [] });
 
     const result = await adminSvc.list({
       page: 1,
@@ -229,6 +245,7 @@ describe('ProductService', () => {
       name: 'Solo Product',
       description: 'Just one',
       basePrice: 3000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -248,6 +265,7 @@ describe('ProductService', () => {
       name: 'Private Product',
       description: 'Belongs to vendor1',
       basePrice: 7000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -264,6 +282,7 @@ describe('ProductService', () => {
       name: 'Vendor Product',
       description: 'Accessible by admin',
       basePrice: 5000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -282,6 +301,7 @@ describe('ProductService', () => {
       name: 'Old Name',
       description: 'Original description',
       basePrice: 4000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -289,6 +309,7 @@ describe('ProductService', () => {
     const updated = await service.update(product.id, {
       name: 'New Name',
       basePrice: 5500,
+      categoryId: testCategoryId,
     });
 
     expect(updated.name).toBe('New Name');
@@ -306,6 +327,7 @@ describe('ProductService', () => {
       name: 'Protected Product',
       description: 'Cannot be updated by others',
       basePrice: 2000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -324,6 +346,7 @@ describe('ProductService', () => {
       name: 'Vendor Product',
       description: 'Admin will update this',
       basePrice: 3000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -340,6 +363,7 @@ describe('ProductService', () => {
       name: 'Variant Product',
       description: 'Has variants',
       basePrice: 8000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
       variants: [
@@ -371,6 +395,7 @@ describe('ProductService', () => {
       name: 'Doomed Product',
       description: 'Will be deactivated',
       basePrice: 1500,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -391,6 +416,7 @@ describe('ProductService', () => {
       name: 'Safe Product',
       description: 'Cannot be deleted by others',
       basePrice: 3000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -407,6 +433,7 @@ describe('ProductService', () => {
       name: 'Admin Delete Target',
       description: 'Admin will delete this',
       basePrice: 2000,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });
@@ -427,6 +454,7 @@ describe('ProductService', () => {
       name: 'Toggle Product',
       description: 'Will be toggled',
       basePrice: 2500,
+      categoryId: testCategoryId,
       tags: [],
       images: [],
     });

@@ -71,6 +71,59 @@ async function main() {
   console.log('  ✓ Created 4 categories');
 
   // ══════════════════════════════════════════════════════════════
+  // CATEGORY ATTRIBUTES  (listing standards per category)
+  // ══════════════════════════════════════════════════════════════
+  await prisma.categoryAttribute.deleteMany();
+  await prisma.categoryAttribute.createMany({
+    data: [
+      // Fashion — sized/coloured variants are mandatory
+      { categoryId: fashion.id, name: 'Size', type: 'SELECT', options: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '37', '38', '39', '40', '41', '42', '43', '44', '45'], isRequired: true, appliesTo: 'VARIANT', sortOrder: 1 },
+      { categoryId: fashion.id, name: 'Color', type: 'SELECT', options: ['Black', 'White', 'Navy', 'Grey', 'Red', 'Green', 'Blue', 'Pink', 'Brown', 'Beige'], isRequired: true, appliesTo: 'VARIANT', sortOrder: 2 },
+      { categoryId: fashion.id, name: 'Material', type: 'TEXT', options: [], isRequired: false, appliesTo: 'PRODUCT', sortOrder: 3 },
+      // Electronics — colour optional at variant level
+      { categoryId: electronics.id, name: 'Color', type: 'SELECT', options: ['Black', 'White', 'Silver', 'Grey', 'Gold', 'Rose Gold', 'Blue'], isRequired: false, appliesTo: 'VARIANT', sortOrder: 1 },
+      { categoryId: electronics.id, name: 'Storage', type: 'SELECT', options: ['64GB', '128GB', '256GB', '512GB', '1TB'], isRequired: false, appliesTo: 'VARIANT', sortOrder: 2 },
+      // Home & Garden
+      { categoryId: homeGarden.id, name: 'Color', type: 'SELECT', options: ['Black', 'White', 'Natural', 'Walnut', 'Oak', 'Grey'], isRequired: false, appliesTo: 'VARIANT', sortOrder: 1 },
+      { categoryId: homeGarden.id, name: 'Material', type: 'TEXT', options: [], isRequired: false, appliesTo: 'PRODUCT', sortOrder: 2 },
+      // Sports & Outdoors
+      { categoryId: sports.id, name: 'Size', type: 'SELECT', options: ['XS', 'S', 'M', 'L', 'XL'], isRequired: false, appliesTo: 'VARIANT', sortOrder: 1 },
+      { categoryId: sports.id, name: 'Color', type: 'SELECT', options: ['Black', 'Blue', 'Green', 'Pink', 'Orange', 'Purple'], isRequired: false, appliesTo: 'VARIANT', sortOrder: 2 },
+    ],
+  });
+  console.log('  ✓ Created category attributes');
+
+  // ══════════════════════════════════════════════════════════════
+  // DELIVERY PARTNERS & SHIPPING METHODS
+  // ══════════════════════════════════════════════════════════════
+  await prisma.shippingMethod.deleteMany();
+  await prisma.deliveryPartner.deleteMany();
+
+  const gig = await prisma.deliveryPartner.create({
+    data: {
+      name: 'GIG Logistics',
+      trackingUrlTemplate: 'https://giglogistics.com/tracking?waybill={tracking}',
+      sortOrder: 1,
+    },
+  });
+  const dhl = await prisma.deliveryPartner.create({
+    data: {
+      name: 'DHL Express',
+      trackingUrlTemplate: 'https://www.dhl.com/ng-en/home/tracking.html?tracking-id={tracking}',
+      sortOrder: 2,
+    },
+  });
+
+  await prisma.shippingMethod.createMany({
+    data: [
+      { partnerId: gig.id, name: 'Standard Delivery', price: 2500, freeAbove: 50000, minDays: 3, maxDays: 5, sortOrder: 1 },
+      { partnerId: gig.id, name: 'Express Delivery', price: 6000, minDays: 1, maxDays: 2, sortOrder: 2 },
+      { partnerId: dhl.id, name: 'DHL Express', price: 12000, minDays: 1, maxDays: 2, sortOrder: 3 },
+    ],
+  });
+  console.log('  ✓ Created delivery partners & shipping methods');
+
+  // ══════════════════════════════════════════════════════════════
   // PRODUCTS  (prices in NGN ₦)
   // ══════════════════════════════════════════════════════════════
 

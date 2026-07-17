@@ -2,8 +2,24 @@ import { Request, Response, NextFunction } from 'express';
 import catchAsync from '../utils/catchAsync';
 import createError from 'http-errors';
 import * as categoryService from '../services/category.service';
+import { getCategoryAttributes } from '../services/listing-standards.service';
 import { categorySlugQuerySchema } from '../validators/category.validator';
 import { featuredQuerySchema } from '../validators/product.validator';
+
+/**
+ * GET /api/v1/categories/id/:id/attributes
+ * Listing-standard attributes for a category (drives the vendor form).
+ */
+export const getCategoryAttributesHandler = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const attributes = await getCategoryAttributes(req.params.id as string);
+
+    res.status(200).json({
+      success: true,
+      data: attributes,
+    });
+  },
+);
 
 /**
  * GET /api/v1/categories

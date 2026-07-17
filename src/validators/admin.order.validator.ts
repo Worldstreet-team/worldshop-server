@@ -9,8 +9,11 @@ export const adminOrdersQuerySchema = z.object({
       'CREATED',
       'PAID',
       'PROCESSING',
+      'PACKAGED',
       'SHIPPED',
+      'OUT_FOR_DELIVERY',
       'DELIVERED',
+      'DELIVERY_FAILED',
       'CANCELLED',
       'REFUNDED',
     ])
@@ -35,8 +38,11 @@ export const updateOrderStatusSchema = z.object({
   status: z.enum([
     'PAID',
     'PROCESSING',
+    'PACKAGED',
     'SHIPPED',
+    'OUT_FOR_DELIVERY',
     'DELIVERED',
+    'DELIVERY_FAILED',
     'CANCELLED',
     'REFUNDED',
   ]),

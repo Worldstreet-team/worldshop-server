@@ -38,7 +38,13 @@
  * CAVEAT: `prisma db push` would recreate this as a plain unique index and
  * reintroduce the bug. Re-run this script if that ever happens.
  */
+import 'dotenv/config';
+import dns from 'node:dns';
 import mongoose from 'mongoose';
+
+// Some local resolvers mangle the SRV lookups mongodb+srv:// needs
+// (querySrv EBADRESP) — resolve via public DNS instead.
+dns.setServers(['1.1.1.1', '8.8.8.8']);
 
 const INDEX_NAME = 'Cart_userId_key';
 const COLLECTION = 'Cart';

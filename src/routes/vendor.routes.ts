@@ -58,6 +58,7 @@ router.delete('/digital-assets/:assetId', vendorDigitalAssetController.deleteDig
 router.get('/orders', vendorOrderController.getOrders);
 router.get('/orders/:id', vendorOrderController.getOrder);
 router.patch('/orders/:id/status', validate(updateVendorOrderStatusSchema), vendorOrderController.updateStatus);
+router.patch('/orders/:id/delivery-date', vendorOrderController.extendDeliveryDate);
 
 // ─── Vendor Reviews (read-only) ────────────────────────────────
 router.get('/reviews', vendorReviewController.getReviews);

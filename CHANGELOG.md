@@ -4,6 +4,78 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-07-17
+
+### Added — Fulfilment Lifecycle & Delivery Tracking (Test 7)
+
+#### Schema
+- `OrderStatus` — new stages: `PACKAGED`, `OUT_FOR_DELIVERY`, `DELIVERY_FAILED`
+- `Order.trackingNumber` — structured waybill field (previously buried in free-text notes)
+
+#### Vendor fulfilment
+- `VENDOR_TRANSITIONS` widened — vendors now drive the full path: PAID → PROCESSING → PACKAGED → SHIPPED → OUT_FOR_DELIVERY → DELIVERED, with DELIVERY_FAILED from SHIPPED/OUT_FOR_DELIVERY and re-attempt (DELIVERY_FAILED → OUT_FOR_DELIVERY). Vendors could previously never mark orders SHIPPED at all.
+- Marking SHIPPED requires a `trackingNumber` (Zod superRefine + service sets `shippedAt`); stage-appropriate default status-history notes
+- `PATCH /api/v1/vendor/orders/:id/delivery-date` — extend the expected delivery date on a delayed order (future-date validated, recorded in status history, customer emailed with the new date)
+
+#### Admin
+- `VALID_TRANSITIONS` extended for the new stages; failed deliveries resolve to re-attempt, refund (wallet-credited via 0.18.0), or cancellation
+- Admin SHIPPED transition now stores the tracking number in the structured field instead of appending to notes
+
+#### Responses
+- Order responses include `trackingNumber` and a computed `trackingUrl` built from the delivery partner's `trackingUrlTemplate` (cached lookup)
+
+## [0.20.0] - 2026-07-17
+
+### Added — Delivery Partners & Shipping Methods (Test 6)
+
+#### Schema
+- New `DeliveryPartner` model — name, logo, `trackingUrlTemplate` (`{tracking}` placeholder), isActive, sortOrder
+- New `ShippingMethod` model — partner relation, name, `price` (NGN per vendor shipment), `freeAbove` (waives the fee at a subtotal threshold), `minDays`/`maxDays` delivery window
+- `Order` — delivery snapshot fields: `shippingMethodId`, `shippingMethodName`, `deliveryPartnerName`, `expectedDeliveryDate`
+- `prisma/seed.ts` — seeds GIG Logistics (Standard ₦2,500 free over ₦50k 3–5d, Express ₦6,000 1–2d) and DHL Express (₦12,000 1–2d)
+
+#### Services & Routes
+- `src/services/shipping.service.ts` — `listActiveShippingMethods`, `resolveShippingMethod` (requested method or first active as default; legacy flat rate when none configured), `computeGroupShipping` (freeAbove-aware, per vendor shipment), `computeExpectedDeliveryDate`
+- `GET /api/v1/shipping/methods` — public; methods with partner names, prices, delivery windows
+- `checkout.service.ts` — preview accepts `shippingMethodId` and returns the priced `shippingMethod` summary; confirm accepts `shippingMethodId`, prices each vendor group with it, and stamps the delivery snapshot + expected date on every physical order
+- `order.service.ts` — order responses now include `shippingMethodName`, `deliveryPartnerName`, `expectedDeliveryDate`
+
+## [0.19.0] - 2026-07-17
+
+### Added — Listing Standards & Category Attributes (Tests 2 & 8)
+
+#### Schema
+- `Product` — new `material String?`, `weightGrams Int?`, `dimensions Json?` (`{length, width, height, unit}`)
+- New `CategoryAttribute` model — per-category listing rules: `name`, `type` (SELECT/TEXT/NUMBER), `options[]`, `isRequired`, `appliesTo` (PRODUCT/VARIANT), `sortOrder`; unique per (categoryId, name)
+- `prisma/seed.ts` — seeds attributes for the 4 categories (Fashion requires Size+Color per variant; others optional)
+
+#### Services
+- `src/services/listing-standards.service.ts` — `computeCompliance` (pure rule check returning every problem), `assertListingStandards` (400 gate), `annotateCompliance` (batch annotation, one attribute query per page), `getCategoryAttributes`
+- `product.management.service.ts` — vendor create/update now assert listing standards; updates validate the MERGED product state so editing a pre-standards listing brings it up to code; vendor list/get responses annotated with `compliance: {compliant, problems}`
+
+#### Validators
+- `vendorCreateProductSchema` — `categoryId` now required; PHYSICAL products require ≥1 image (superRefine); added `brand`, `material`, `weightGrams`, `dimensions`
+- `adminCreateProductSchema` — added `material`, `weightGrams`, `dimensions`
+
+#### Routes
+- `GET /api/v1/categories/id/:id/attributes` — public; drives the vendor form
+
+## [0.18.0] - 2026-07-17
+
+### Changed — Wallet-Only Checkout (Test 1)
+
+- Checkout now pays exclusively from the buyer's central WorldStreet dollar wallet (hold at pay → capture at verify). `POST /checkout/pay` defaults to `WALLET`; MOCK remains available outside production for local testing.
+- `payment-orchestrator.service.ts` — unknown providers are rejected with 400 (previously silently fell back to MOCK); non-wallet providers rejected via `ALLOWED_PROVIDERS`; pending pre-cutover payments migrate to the requested allowed provider on retry
+- `payment.service.ts` (registry) — removed the silent mock fallback (`getPaymentProvider` now throws for unregistered providers) and the CRYPTO→mock registration; FLUTTERWAVE stays registered so historical payments can verify
+- `payment.controller.ts` — `/payments/webhook/mock` returns 404 in production
+- `envConfig.ts` — added `IS_PROD` helper
+
+### Added
+
+- `GET /api/v1/payments/wallet/balance?amountNgn=` — buyer's available USD wallet balance plus the converted order total and a `sufficient` flag (`getWalletUsdBalance` in wallet.provider)
+- `refundWalletCapture` in wallet.provider — refunds a captured wallet payment by platform credit, proportional to the order's NGN total at the hold's snapshotted FX rate, idempotent by reference
+- `admin.order.service.ts` — transitioning a wallet-paid order to REFUNDED now returns the money to the buyer's wallet BEFORE marking the order refunded; the "MANUAL ACTION REQUIRED" warning now applies only to non-wallet (pre-cutover) payments
+
 ## [0.17.0] - 2026-04-10
 
 ### Added — Phase 7: Vendor Reviews & Admin Vendor Management

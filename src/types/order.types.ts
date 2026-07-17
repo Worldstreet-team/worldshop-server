@@ -37,6 +37,12 @@ export interface OrderWithItems {
   total: number;
   couponCode?: string | null;
   notes?: string | null;
+  shippingMethodName?: string | null;
+  deliveryPartnerName?: string | null;
+  expectedDeliveryDate?: Date | null;
+  trackingNumber?: string | null;
+  /** Carrier tracking page for this shipment, built from the partner's template. */
+  trackingUrl?: string | null;
   statusHistory: OrderStatusHistoryResponse[];
   createdAt: Date;
   updatedAt: Date;
@@ -140,11 +146,24 @@ export interface VendorGroup {
   total: number;
 }
 
+export interface ShippingMethodSummary {
+  id: string;
+  name: string;
+  partnerName: string;
+  price: number;
+  freeAbove: number | null;
+  minDays: number;
+  maxDays: number;
+  expectedDeliveryDate: string;
+}
+
 export interface CheckoutSessionPreview {
   snapshotToken: string;
   vendorGroups: VendorGroup[];
   issues: CheckoutIssue[];
   requiresShipping: boolean;
+  /** The delivery method the shipping totals were computed with (null = legacy flat rate or digital-only). */
+  shippingMethod: ShippingMethodSummary | null;
   summary: {
     orderCount: number;
     subtotal: number;
@@ -159,6 +178,7 @@ export interface ConfirmCheckoutSessionInput {
   snapshotToken: string;
   shippingAddress?: ShippingAddress;
   billingAddress?: ShippingAddress;
+  shippingMethodId?: string;
   notes?: string;
 }
 

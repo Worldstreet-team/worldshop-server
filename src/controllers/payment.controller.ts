@@ -2,7 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import createError from 'http-errors';
 import catchAsync from '../utils/catchAsync';
 import * as paymentService from '../services/payment.service';
-import { getUsdNgnRate, ngnToUsdMinor } from '../services/payment/providers/wallet.provider';
+import {
+  getUsdNgnRate,
+  ngnToUsdMinor,
+  getWalletUsdBalance,
+} from '../services/payment/providers/wallet.provider';
+import { IS_PROD } from '../configs/envConfig';
 
 /**
  * GET /api/v1/payments/wallet/quote?amountNgn=25000
@@ -32,6 +37,56 @@ export const walletQuote = catchAsync(
   },
 );
 
+/**
+ * GET /api/v1/payments/wallet/balance?amountNgn=25000
+ * The authenticated buyer's available USD wallet balance. With an optional
+ * amountNgn, also returns the converted order total (same cached rate the
+ * WALLET provider charges with) and whether the balance covers it.
+ */
+export const walletBalance = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const balance = await getWalletUsdBalance(userId);
+
+    let quote: {
+      amountNgn: number;
+      fxRate: number;
+      usdMinor: number;
+      usd: number;
+      sufficient: boolean;
+    } | null = null;
+
+    if (req.query.amountNgn !== undefined) {
+      const amountNgn = Number(req.query.amountNgn);
+      if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
+        throw createError(400, 'amountNgn must be a positive number');
+      }
+      const fxRate = await getUsdNgnRate();
+      const usdMinor = ngnToUsdMinor(amountNgn, fxRate);
+      quote = {
+        amountNgn,
+        fxRate,
+        usdMinor,
+        usd: usdMinor / 100,
+        sufficient: balance.availableMinor >= usdMinor,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { balance, quote },
+    });
+  },
+);
+
 export const verify = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user?.id;
@@ -55,6 +110,9 @@ export const verify = catchAsync(
 
 export const mockWebhook = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
+    if (IS_PROD) {
+      throw createError(404, 'Not found');
+    }
     const rawBody = JSON.stringify(req.body);
     const signature = (req.headers['x-webhook-signature'] as string) || '';
 

@@ -14,18 +14,39 @@ import { createDownloadRecords } from '../download.service';
 import { settleOrder } from '../ledger.write.service';
 import { releaseExpiredCheckoutSessions } from '../checkout.service';
 import { globalLog as logger } from '../../configs/loggerConfig';
+import { IS_PROD } from '../../configs/envConfig';
+
+/**
+ * Checkout is wallet-only: buyers pay from their central WorldStreet wallet.
+ * MOCK stays available outside production for local/E2E testing. FLUTTERWAVE
+ * remains registered so historical payments can still verify, but new
+ * payments cannot be initialized against it.
+ */
+const ALLOWED_PROVIDERS: ReadonlySet<PaymentProviderType> = new Set(
+  IS_PROD
+    ? [PaymentProvider.WALLET]
+    : [PaymentProvider.WALLET, PaymentProvider.MOCK],
+);
 
 function normalizePaymentProvider(
   provider: unknown,
 ): PaymentProviderType {
-  if (typeof provider !== 'string') return PaymentProvider.MOCK;
-
-  const normalized = provider.trim().toUpperCase();
-  if (normalized in PaymentProvider) {
-    return PaymentProvider[normalized as keyof typeof PaymentProvider];
+  if (typeof provider === 'string') {
+    const normalized = provider.trim().toUpperCase();
+    if (normalized in PaymentProvider) {
+      return PaymentProvider[normalized as keyof typeof PaymentProvider];
+    }
   }
+  throw createError(400, 'Unknown payment provider');
+}
 
-  return PaymentProvider.MOCK;
+function assertProviderAllowed(provider: PaymentProviderType): void {
+  if (!ALLOWED_PROVIDERS.has(provider)) {
+    throw createError(
+      400,
+      'This payment method is not available. Pay from your WorldStreet wallet.',
+    );
+  }
 }
 
 async function sendReceiptForOrder(
@@ -447,10 +468,11 @@ export async function initializePayment(
   userId: string,
   userEmail: string,
   checkoutSessionId: string,
-  provider: PaymentProviderType = 'MOCK' as PaymentProviderType,
+  provider: PaymentProviderType = PaymentProvider.WALLET,
 ): Promise<InitPaymentResult> {
   await releaseExpiredCheckoutSessions();
   const requestedProvider = normalizePaymentProvider(provider);
+  assertProviderAllowed(requestedProvider);
 
   const orders = await prisma.order.findMany({
     where: { checkoutSessionId, userId },
@@ -474,7 +496,13 @@ export async function initializePayment(
       throw createError(400, 'This checkout session has already been paid for');
     }
     if (existingPayment.status === PaymentStatus.PENDING) {
-      const existingProvider = normalizePaymentProvider(existingPayment.provider);
+      // Reuse the pending payment's provider, unless it is no longer allowed
+      // (e.g. a FLUTTERWAVE session pending from before the wallet-only
+      // cutover) — then migrate the retry to the requested provider.
+      const storedProvider = normalizePaymentProvider(existingPayment.provider);
+      const existingProvider = ALLOWED_PROVIDERS.has(storedProvider)
+        ? storedProvider
+        : requestedProvider;
       const paymentProvider = getPaymentProvider(existingProvider);
       const result = await paymentProvider.initializePayment({
         checkoutSessionId,

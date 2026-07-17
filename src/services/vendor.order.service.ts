@@ -5,16 +5,30 @@ import type { OrderWithItems, PaginatedOrders } from '../types/order.types';
 import type {
   VendorOrdersQueryInput,
   UpdateVendorOrderStatusInput,
+  ExtendDeliveryDateInput,
 } from '../validators/vendor.order.validator';
 import { formatOrderResponse } from './order.service';
 
 // ─── Vendor-allowed status transitions ──────────────────────────
-// Vendors can only move orders forward: PAID → PROCESSING → DELIVERED
+// Vendors drive the full fulfilment path:
+//   PAID → PROCESSING → PACKAGED → SHIPPED → OUT_FOR_DELIVERY → DELIVERED
+// A failed delivery can be re-attempted (→ OUT_FOR_DELIVERY) or escalated to
+// an admin refund. Cancel/refund stay admin-only.
 const VENDOR_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CREATED]: [],
   [OrderStatus.PAID]: [OrderStatus.PROCESSING],
-  [OrderStatus.PROCESSING]: [OrderStatus.DELIVERED],
-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
+  [OrderStatus.PROCESSING]: [OrderStatus.PACKAGED, OrderStatus.SHIPPED],
+  [OrderStatus.PACKAGED]: [OrderStatus.SHIPPED],
+  [OrderStatus.SHIPPED]: [
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERED,
+    OrderStatus.DELIVERY_FAILED,
+  ],
+  [OrderStatus.OUT_FOR_DELIVERY]: [
+    OrderStatus.DELIVERED,
+    OrderStatus.DELIVERY_FAILED,
+  ],
+  [OrderStatus.DELIVERY_FAILED]: [OrderStatus.OUT_FOR_DELIVERY],
   [OrderStatus.DELIVERED]: [],
   [OrderStatus.CANCELLED]: [],
   [OrderStatus.REFUNDED]: [],
@@ -150,23 +164,99 @@ export async function updateVendorOrderStatus(
     );
   }
 
+  const defaultNotes: Partial<Record<OrderStatus, string>> = {
+    [OrderStatus.PACKAGED]: 'Order packaged and ready for pickup',
+    [OrderStatus.SHIPPED]: input.trackingNumber
+      ? `Shipped — tracking number ${input.trackingNumber}`
+      : 'Shipped',
+    [OrderStatus.OUT_FOR_DELIVERY]:
+      currentStatus === OrderStatus.DELIVERY_FAILED
+        ? 'Delivery re-attempt scheduled'
+        : 'Out for delivery',
+    [OrderStatus.DELIVERY_FAILED]: 'Delivery attempt failed',
+  };
+
   const updateData: Record<string, unknown> = {
     status: newStatus,
     statusHistory: {
       create: {
         status: newStatus,
-        note: input.note || `Status changed to ${newStatus} by vendor`,
+        note:
+          input.note ||
+          defaultNotes[newStatus] ||
+          `Status changed to ${newStatus} by vendor`,
       },
     },
   };
 
-  if (newStatus === OrderStatus.DELIVERED) {
+  if (newStatus === OrderStatus.SHIPPED) {
+    updateData.shippedAt = new Date();
+    updateData.trackingNumber = input.trackingNumber;
+  } else if (newStatus === OrderStatus.DELIVERED) {
     updateData.deliveredAt = new Date();
   }
 
   const updatedOrder = await prisma.order.update({
     where: { id: orderId },
     data: updateData as any,
+    include: ORDER_INCLUDE,
+  });
+
+  return formatOrderResponse(updatedOrder);
+}
+
+/**
+ * Extend the expected delivery date on a delayed order. Only valid while the
+ * order is in transit (SHIPPED / OUT_FOR_DELIVERY / DELIVERY_FAILED); the
+ * change is recorded in the status history so the buyer sees it.
+ */
+export async function extendVendorDeliveryDate(
+  orderId: string,
+  vendorId: string,
+  input: ExtendDeliveryDateInput,
+): Promise<OrderWithItems> {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+
+  if (!order) {
+    throw createError(404, 'Order not found');
+  }
+  if (order.vendorId !== vendorId) {
+    throw createError(403, 'Not authorized to update this order');
+  }
+
+  const extendable: OrderStatus[] = [
+    OrderStatus.PROCESSING,
+    OrderStatus.PACKAGED,
+    OrderStatus.SHIPPED,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERY_FAILED,
+  ];
+  if (!extendable.includes(order.status)) {
+    throw createError(
+      400,
+      `Cannot change the expected delivery date of a ${order.status} order`,
+    );
+  }
+
+  const formatted = input.expectedDeliveryDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const updatedOrder = await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      expectedDeliveryDate: input.expectedDeliveryDate,
+      statusHistory: {
+        create: {
+          status: order.status,
+          note: input.note
+            ? `Expected delivery moved to ${formatted} — ${input.note}`
+            : `Expected delivery moved to ${formatted}`,
+        },
+      },
+    },
     include: ORDER_INCLUDE,
   });
 

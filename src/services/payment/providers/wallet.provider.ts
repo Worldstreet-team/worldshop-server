@@ -178,6 +178,26 @@ function unwrap<T>(result: WalletResult<T>, context: string): T {
   throw createError(502, `Wallet payment failed: ${result.message}`);
 }
 
+// ── Balance ──
+
+export type WalletCurrencyBalance = {
+  availableMinor: number;
+  lockedMinor: number;
+  available: number;
+  locked: number;
+};
+
+/**
+ * The buyer's pooled USD balance from the wallet service. Throws 502/503-style
+ * errors via `unwrap` — checkout needs a real answer, not a stale guess.
+ */
+export async function getWalletUsdBalance(userId: string): Promise<WalletCurrencyBalance> {
+  const result = await walletCall<{
+    balances: { USD: WalletCurrencyBalance; NGN: WalletCurrencyBalance };
+  }>('GET', `/v1/wallet/${encodeURIComponent(userId)}/balances`);
+  return unwrap(result, 'balances.read').balances.USD;
+}
+
 // ── Composite transaction ref ──
 // verifyPayment only receives the ref, but acting on a hold needs the owner's
 // userId in the path — so both ride in the ref.
@@ -236,6 +256,87 @@ export async function releaseWalletHold(transactionRef: string, reason: string):
     message: result.message,
   });
   return false;
+}
+
+/**
+ * Refund (part of) a captured wallet payment by crediting the buyer back.
+ *
+ * Capturing a hold does not create a wallet charge, so the wallet's
+ * charge-refund endpoint does not apply — the refund primitive is a platform
+ * credit. One hold covers a whole checkout session (possibly several vendor
+ * orders), so the refund amount is derived from the NGN order total at the FX
+ * rate snapshotted on the hold, capped at what was actually captured. The
+ * wallet dedupes credits on `reference`, so a retried refund never pays twice.
+ */
+export async function refundWalletCapture(opts: {
+  transactionRef: string;
+  /** NGN amount to give back — the order's total. */
+  refundNgn: number;
+  /** Unique per refund action (e.g. the order id). */
+  reference: string;
+  reason: string;
+}): Promise<{ refundedMinor: number }> {
+  const { userId, holdId } = parseRef(opts.transactionRef);
+
+  const hold = await getWalletHold(opts.transactionRef);
+  if (!hold) {
+    throw createError(502, 'Could not reach the wallet to process the refund');
+  }
+  if (hold.status !== 'captured') {
+    // held/released/expired → the buyer was never charged for this session.
+    throw createError(
+      409,
+      `Wallet payment was never captured (hold is ${hold.status}) — nothing to refund`,
+    );
+  }
+
+  const amountNgn = Number(hold.metadata?.amountNgn ?? 0);
+  const fxRate = Number(hold.metadata?.fxRate ?? 0);
+  if (!(amountNgn > 0) || !(fxRate > 0)) {
+    throw createError(502, 'Wallet hold is missing its FX snapshot — refund manually');
+  }
+
+  // Ceil in the buyer's favour; never exceed what was captured.
+  const refundedMinor = Math.min(
+    hold.capturedMinor,
+    Math.ceil((opts.refundNgn / fxRate) * 100),
+  );
+  if (refundedMinor <= 0) {
+    throw createError(400, 'Refund amount must be positive');
+  }
+
+  const reference = `refund-${holdId}-${opts.reference}`;
+  const credit = unwrap(
+    await walletCall<{ credited: boolean; reference: string }>(
+      'POST',
+      `/v1/wallet/${encodeURIComponent(userId)}/credits`,
+      {
+        idempotencyKey: `worldshop:${reference}`,
+        body: {
+          amountMinor: refundedMinor,
+          currency: 'USD',
+          reference,
+          description: `WorldShop refund: ${opts.reason}`,
+          metadata: {
+            holdId,
+            transactionRef: opts.transactionRef,
+            refundNgn: opts.refundNgn,
+            fxRate,
+          },
+        },
+      },
+    ),
+    'credits.refund',
+  );
+
+  logger.info('[Wallet] Refund credited', {
+    transactionRef: opts.transactionRef,
+    refundedMinor,
+    refundNgn: opts.refundNgn,
+    alreadyApplied: !credit.credited,
+  });
+
+  return { refundedMinor };
 }
 
 // ── Provider ──
