@@ -134,12 +134,15 @@ model CategoryAttribute {
   categoryId String   @db.ObjectId
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  name       String   // e.g. "Size", "Color", "Material"
-  type       String   @default("SELECT") // SELECT, TEXT, NUMBER
-  options    String[] // Allowed values when type=SELECT
-  isRequired Boolean  @default(false)
-  appliesTo  String   @default("VARIANT") // PRODUCT or VARIANT
-  sortOrder  Int      @default(0)
+  name         String   // e.g. "Size", "Color", "Material"
+  type         String   @default("SELECT") // SELECT, TEXT, NUMBER
+  options      String[] // Allowed values when type=SELECT
+  isRequired   Boolean  @default(false)
+  appliesTo    String   @default("VARIANT") // PRODUCT or VARIANT
+  sortOrder    Int      @default(0)
+  // Only SELECT attributes make good facets; a free-text attribute is
+  // structured enough to validate but too open to filter on.
+  isFilterable Boolean  @default(true)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -153,6 +156,20 @@ model CategoryAttribute {
 // Core product catalog with images, variants, and category relation.
 // All prices stored in NGN (₦).
 // ============================================
+
+enum ListingStatus {
+  DRAFT      // vendor is still working on it — never public
+  PUBLISHED  // vendor published it; public IF the store's subscription is paid
+  HIDDEN     // vendor unpublished it
+  REMOVED    // taken down by an admin after a report
+}
+
+// Classifieds pricing: not every listing has a single fixed number.
+enum PriceType {
+  FIXED
+  RANGE
+  ON_REQUEST
+}
 
 model Product {
   id            String           @id @default(auto()) @map("_id") @db.ObjectId
@@ -179,6 +196,35 @@ model Product {
   tags          String[]
   images        Json       @default("[]") // Array of { key, alt, isPrimary, sortOrder }
 
+  // ── Two-layer detail model ──
+  // `attributes` holds values for the admin-defined CategoryAttribute set:
+  // controlled vocabulary, so it can drive faceted search.
+  //   { "Size": "XL", "Condition": "New", "Storage": "128GB" }
+  // `customFields` is whatever else the vendor wants to say about this one
+  // product. Display-only — free text cannot be filtered on reliably, and
+  // trying would produce "Colour"/"colour"/"Color" as three separate facets.
+  //   [{ label: "Warranty", value: "6 months", sortOrder: 0 }]
+  attributes    Json?
+  customFields  Json             @default("[]")
+
+  // ── Listing lifecycle ──
+  // A listing is DRAFT until its vendor publishes it, and only reaches the
+  // public browse once the STORE is paid up too. Both gates must be open.
+  status        ListingStatus    @default(DRAFT)
+  publishedAt   DateTime?
+  condition     String?          // NEW, USED, REFURBISHED
+  priceType     PriceType        @default(FIXED)
+  maxPrice      Float?           // when priceType = RANGE
+  isNegotiable  Boolean          @default(true)
+  state         String?          // falls back to the store's location
+  city          String?
+  viewCount     Int              @default(0)
+  // Inquiries are the renewal argument: "you got 40 messages this month" is
+  // what makes the next $5 obvious. Denormalised for the vendor dashboard.
+  inquiryCount  Int              @default(0)
+
+  conversations Conversation[]
+
   // Digital product assets (only for type=DIGITAL)
   digitalAssets DigitalAsset[]
 
@@ -197,12 +243,19 @@ model Product {
   isFeatured    Boolean          @default(false)
   isNewArrival  Boolean          @default(true)
 
+  // Marketplace pivot: listings belong to a Store. Optional during the
+  // migration — backfilled from `vendorId` by scripts/backfill-stores.ts,
+  // required once every listing has moved.
+  storeId       String?          @db.ObjectId
+  store         Store?           @relation(fields: [storeId], references: [id])
+
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   @@index([categoryId])
   @@index([isActive])
   @@index([vendorId])
+  @@index([storeId])
 }
 
 model ProductVariant {
@@ -216,6 +269,10 @@ model ProductVariant {
   compareAtPrice Float?
   stock          Int      @default(0)
   isActive       Boolean  @default(true)
+  // Marketplace: no inventory to track, but a vendor still needs to say
+  // "the red one is gone". Variant photos matter for clothing and shoes.
+  isAvailable    Boolean  @default(true)
+  images         Json     @default("[]")
 
   cartItems      CartItem[]
   orderItems     OrderItem[]
@@ -444,16 +501,41 @@ model Payment {
 // One review per user per product. Auto-verified if user purchased the product.
 // ============================================
 
+enum ReviewStatus {
+  PUBLISHED
+  FLAGGED   // reported, awaiting admin review — still visible
+  REMOVED   // taken down by an admin
+}
+
 model Review {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
   productId  String   @db.ObjectId
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Denormalised so a store-level rating can be rolled up without joining
+  // through every listing — and so the review survives the listing being
+  // deleted, which is when a dissatisfied buyer is most likely to be reviewing.
+  storeId    String?  @db.ObjectId
+  store      Store?   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
   userId     String   // maps to external auth user id
   userName   String   // display name snapshot
   rating     Int      // 1-5
   title      String?
   comment    String
-  isVerified Boolean  @default(false) // true if user has a DELIVERED order with this product
+
+  // Trust anchor. There are no purchases to verify against any more, so the
+  // evidence of real contact is a chat thread: reviewing requires having
+  // messaged the store, and `isVerified` marks the ones the vendor answered.
+  conversationId String? @db.ObjectId
+  isVerified     Boolean @default(false)
+
+  // Vendors have no refund or resolution lever in this model, so a public
+  // response is their only answer to an unfair review.
+  vendorReply     String?
+  vendorRepliedAt DateTime?
+
+  status     ReviewStatus @default(PUBLISHED)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -461,6 +543,7 @@ model Review {
   @@unique([productId, userId])
   @@index([productId])
   @@index([userId])
+  @@index([storeId, status])
 }
 
 // ============================================
@@ -641,4 +724,316 @@ model VendorWithdrawalRequest {
   @@index([vendorId])
   @@index([status])
   @@index([createdAt])
+}
+
+// ============================================
+// STORE
+// Marketplace pivot: a store is a paid, first-class entity. It is created in
+// DRAFT (owner-visible only) and becomes publicly listed once the first
+// subscription charge clears. Replaces the vendor fields on UserProfile.
+// ============================================
+
+enum StoreStatus {
+  DRAFT      // created, never paid — visible only to its owner
+  ACTIVE     // subscription current
+  GRACE      // renewal failed, still visible
+  EXPIRED    // lapsed — hidden from browse
+  SUSPENDED  // admin action, reversible
+  BANNED
+}
+
+enum VerificationTier {
+  UNVERIFIED
+  EMAIL_VERIFIED
+  ID_VERIFIED
+  BUSINESS_VERIFIED
+}
+
+model Store {
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId          String           @unique // UserProfile.userId
+  name             String
+  slug             String           @unique // required, so a plain unique index works
+  description      String?
+  logo             String?
+  banner           String?
+
+  // Contact — buyers reach vendors here; in-platform chat is the primary channel
+  phone            String?
+  whatsapp         String?
+  email            String?
+  website          String?
+
+  state            String
+  city             String?
+  address          String?
+  openingHours     Json?
+
+  status           StoreStatus      @default(DRAFT)
+  verificationTier VerificationTier @default(UNVERIFIED)
+  verifiedAt       DateTime?
+  verifiedBy       String?
+
+  // Subscription credit, in USD minor units. Spent before the wallet is
+  // touched. Seeded for legacy vendors by scripts/convert-vendor-balances.ts.
+  creditMinor      Int              @default(0)
+
+  // Denormalised for store cards and sorting
+  avgRating        Float            @default(0)
+  reviewCount      Int              @default(0)
+  listingCount     Int              @default(0)
+  viewCount        Int              @default(0)
+
+  // Trust signals shown to buyers. With nothing transacted on-platform these
+  // are the strongest evidence a store is real and attentive — and they give
+  // the vendor a concrete reason to answer their messages.
+  responseRate     Float?           // 0–1, share of threads the vendor replied to
+  avgResponseMins  Int?
+  inquiryCount     Int              @default(0)
+
+  listings         Product[]
+  subscription     Subscription?
+  creditEntries    StoreCreditEntry[]
+  conversations    Conversation[]
+  reviews          Review[]
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status])
+  @@index([state, status])
+}
+
+// ============================================
+// STORE CREDIT
+// Immutable audit trail behind Store.creditMinor. Every movement is a row, so
+// the balance can always be re-derived — a bare integer on Store would leave
+// no way to answer "where did this come from" for money the platform owes.
+// ============================================
+
+enum StoreCreditEntryType {
+  MIGRATED_BALANCE    // converted from a pre-pivot VendorBalance
+  ADMIN_GRANT
+  SUBSCRIPTION_DEBIT
+  REVERSAL
+}
+
+model StoreCreditEntry {
+  id            String               @id @default(auto()) @map("_id") @db.ObjectId
+  storeId       String               @db.ObjectId
+  store         Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  type          StoreCreditEntryType
+  amountMinor   Int                  // positive = credit, negative = debit
+  currency      String               @default("USD")
+  balanceBefore Int
+  balanceAfter  Int
+
+  // Idempotency: the subscription chargeRef for debits, a migration key for
+  // grants. A replayed operation collides here instead of moving money twice.
+  reference     String               @unique
+  note          String?
+
+  createdAt     DateTime             @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([type])
+}
+
+// ============================================
+// SUBSCRIPTIONS
+// Vendors pay a recurring fee to keep their store visible. Charged in USD
+// minor units against the central WorldStreet dollar wallet, which already
+// recognises `worldshop` as a spending platform.
+// ============================================
+
+enum SubscriptionStatus {
+  PENDING_PAYMENT // store created, never charged — no trial by default
+  ACTIVE
+  GRACE           // renewal failed, inside the grace window
+  LAPSED          // grace expired — listings hidden
+  CANCELLED       // vendor opted out; runs to the end of the paid period
+}
+
+model SubscriptionPlan {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  code          String         @unique // "standard"
+  name          String
+  amountMinor   Int            // 500 = $5.00
+  currency      String         @default("USD")
+  // "Monthly" means the same date each month, not every 30 days. 30-day cycles
+  // drift — 12.17 charges a year instead of 12 — and a vendor who paid on the
+  // 3rd expects to pay on the 3rd. `intervalMonths` takes precedence when set;
+  // `intervalDays` remains for any non-monthly plan (e.g. a 7-day trial).
+  intervalMonths Int?          @default(1)
+  intervalDays  Int            @default(30)
+  graceDays     Int            @default(7)
+  listingLimit  Int?           // null = unlimited
+  perks         String[]
+  isActive      Boolean        @default(true)
+  sortOrder     Int            @default(0)
+
+  subscriptions Subscription[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Subscription {
+  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  storeId            String               @unique @db.ObjectId
+  store              Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  planId             String               @db.ObjectId
+  plan               SubscriptionPlan     @relation(fields: [planId], references: [id])
+
+  status             SubscriptionStatus   @default(PENDING_PAYMENT)
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  graceEndsAt        DateTime?
+  autoRenew          Boolean              @default(true)
+  cancelledAt        DateTime?
+
+  charges            SubscriptionCharge[]
+
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  // Drives the renewal sweep
+  @@index([status, currentPeriodEnd])
+  @@index([planId])
+}
+
+// One row per billing attempt. `chargeRef` is derived deterministically from
+// (storeId, periodStart) so a retried sweep can never charge a vendor twice.
+model SubscriptionCharge {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  subscriptionId String       @db.ObjectId
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  storeId        String       @db.ObjectId
+
+  amountMinor    Int
+  currency       String       @default("USD")
+  // How the period was funded. creditMinor + walletMinor == amountMinor when
+  // the charge is PAID; a period can be part-credit, part-wallet.
+  creditMinor    Int          @default(0)
+  walletMinor    Int          @default(0)
+  periodStart    DateTime
+  periodEnd      DateTime
+
+  status         String       @default("PENDING") // PENDING, PAID, FAILED
+  failureCode    String?                          // INSUFFICIENT_BALANCE, UNREACHABLE, ...
+  failureReason  String?
+
+  chargeRef      String       @unique             // sub_<storeId>_<periodStart ISO>
+  walletRef      String?                          // wallet-side reference once charged
+  chargedAt      DateTime?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([storeId])
+  @@index([status])
+}
+
+// ============================================
+// REPORTS
+// With money off-platform, de-listing is the only enforcement lever the
+// platform has. Buyers flag, admins act.
+// ============================================
+
+model Report {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  reporterId String?                       // null = anonymous visitor
+  targetType String                        // LISTING, STORE, REVIEW
+  targetId   String    @db.ObjectId
+  reason     String                        // SCAM, PROHIBITED, MISLEADING, MISCATEGORISED, OTHER
+  details    String?
+
+  status     String    @default("OPEN")    // OPEN, REVIEWING, ACTIONED, DISMISSED
+  reviewedBy String?
+  reviewedAt DateTime?
+  actionNote String?
+
+  createdAt  DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+// ============================================
+// CHAT
+// The primary contact channel. Buyers start a thread from a listing; vendors
+// reply. Everything the platform sells to vendors depends on this being used:
+// inquiry counts justify the subscription, response rate is the trust signal
+// shown to buyers, and a replied-to thread is what verifies a review.
+// ============================================
+
+enum ConversationStatus {
+  OPEN
+  ARCHIVED
+  BLOCKED   // admin action after a report
+}
+
+enum SenderRole {
+  BUYER
+  VENDOR
+}
+
+model Conversation {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Threads are per listing so a vendor knows what is being asked about. Kept
+  // nullable and SetNull so deleting a listing does not destroy the history —
+  // the buyer's messages and the vendor's response record survive it.
+  listingId     String?            @db.ObjectId
+  listing       Product?           @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  storeId       String             @db.ObjectId
+  store         Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  buyerId       String                                // UserProfile.userId
+
+  status        ConversationStatus @default(OPEN)
+
+  lastMessageAt DateTime           @default(now())
+  buyerUnread   Int                @default(0)
+  vendorUnread  Int                @default(0)
+
+  // Set on the vendor's first reply. Feeds Store.responseRate and
+  // avgResponseMins, and gates review verification.
+  vendorFirstReplyAt DateTime?
+
+  messages      Message[]
+
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  // One thread per buyer per listing — a buyer asking again continues the
+  // existing conversation instead of fragmenting the vendor's inbox.
+  @@unique([listingId, buyerId])
+  @@index([storeId, lastMessageAt])
+  @@index([buyerId, lastMessageAt])
+  @@index([storeId, status])
+}
+
+model Message {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId       String
+  senderRole     SenderRole
+  body           String
+  attachments    Json         @default("[]")
+
+  // Whether the body looks like it contains a phone number or email. Recorded
+  // rather than acted on: moving buyers off-platform costs the platform its
+  // response-rate signal, its review anchor and its evidence of value, so the
+  // behaviour is worth measuring before deciding a policy.
+  hasContactInfo Boolean      @default(false)
+
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
 }

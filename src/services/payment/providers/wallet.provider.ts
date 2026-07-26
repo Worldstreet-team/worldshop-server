@@ -198,6 +198,98 @@ export async function getWalletUsdBalance(userId: string): Promise<WalletCurrenc
   return unwrap(result, 'balances.read').balances.USD;
 }
 
+// ── Direct USD charge (subscriptions) ──
+
+export type WalletChargeResult =
+  | { ok: true; walletRef: string; amountMinor: number }
+  | { ok: false; code: 'INSUFFICIENT_BALANCE' | 'UNREACHABLE' | 'NOT_CONFIGURED' | 'OTHER'; message: string };
+
+/**
+ * Charges a vendor's USD wallet outright — used for subscription billing,
+ * where there is nothing to reserve and later confirm. Unlike checkout, the
+ * amount is already USD, so no FX conversion is involved.
+ *
+ * Implemented as hold-then-capture because those are the primitives the wallet
+ * service exposes to this server; the resulting spend record is identical to a
+ * direct charge. The hold TTL is deliberately short — if the process dies
+ * between the two calls, the wallet's expiry sweep returns the funds within
+ * minutes rather than leaving them locked.
+ *
+ * Idempotent on `chargeRef`: the same ref replays the original hold instead of
+ * locking funds twice, so a retried renewal sweep cannot double-charge.
+ * Returns a result rather than throwing — a failed subscription charge is an
+ * expected business outcome (insufficient balance), not an exception.
+ */
+export async function chargeWalletUsd(opts: {
+  userId: string;
+  amountMinor: number;
+  chargeRef: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+}): Promise<WalletChargeResult> {
+  const idempotencyKey = `worldshop:${opts.chargeRef}`;
+
+  const held = await walletCall<{ hold: WalletHold }>(
+    'POST',
+    `/v1/wallet/${encodeURIComponent(opts.userId)}/holds`,
+    {
+      idempotencyKey,
+      body: {
+        amountMinor: opts.amountMinor,
+        currency: 'USD',
+        expiresInMinutes: 5,
+        description: opts.description,
+        metadata: { ...opts.metadata, chargeRef: opts.chargeRef },
+      },
+    },
+  );
+
+  if (!held.ok) {
+    const code =
+      held.code === 'INSUFFICIENT_BALANCE' || held.code === 'UNREACHABLE' || held.code === 'NOT_CONFIGURED'
+        ? held.code
+        : 'OTHER';
+    logger.warn('[Wallet] Subscription hold failed', { chargeRef: opts.chargeRef, code: held.code });
+    return { ok: false, code, message: held.message };
+  }
+
+  const hold = held.data.hold;
+
+  // A replayed hold may already be captured — treat that as success rather
+  // than capturing again.
+  if (hold.status === 'captured') {
+    logger.info('[Wallet] Subscription charge replayed', { chargeRef: opts.chargeRef, holdId: hold.id });
+    return { ok: true, walletRef: buildRef(opts.userId, hold.id), amountMinor: hold.capturedMinor };
+  }
+
+  const captured = await walletCall<{ hold: WalletHold }>(
+    'POST',
+    `/v1/wallet/${encodeURIComponent(opts.userId)}/holds/${encodeURIComponent(hold.id)}/capture`,
+    { body: { captureMinor: hold.amountMinor } },
+  );
+
+  if (!captured.ok) {
+    // Leave the hold alone — it expires in 5 minutes and the funds return.
+    logger.error('[Wallet] Subscription capture failed', {
+      chargeRef: opts.chargeRef,
+      holdId: hold.id,
+      code: captured.code,
+    });
+    return { ok: false, code: 'OTHER', message: captured.message };
+  }
+
+  logger.info('[Wallet] Subscription charged', {
+    chargeRef: opts.chargeRef,
+    amountMinor: captured.data.hold.capturedMinor,
+  });
+
+  return {
+    ok: true,
+    walletRef: buildRef(opts.userId, hold.id),
+    amountMinor: captured.data.hold.capturedMinor,
+  };
+}
+
 // ── Composite transaction ref ──
 // verifyPayment only receives the ref, but acting on a hold needs the owner's
 // userId in the path — so both ride in the ref.

@@ -10,10 +10,20 @@ export interface JwtPayload {
   vendorStatus: 'ACTIVE' | 'SUSPENDED' | 'BANNED' | null;
 }
 
+/** Set by requireStore — the caller's own store. */
+export interface StoreContext {
+  id: string;
+  slug: string;
+  status: 'DRAFT' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'SUSPENDED' | 'BANNED';
+  state: string;
+  city: string | null;
+}
+
 declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
+      store?: StoreContext;
     }
   }
 }

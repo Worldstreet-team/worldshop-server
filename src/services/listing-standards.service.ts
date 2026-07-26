@@ -17,6 +17,13 @@ export interface ListingState {
   images: unknown;
   brand?: string | null;
   material?: string | null;
+  /**
+   * Values for the admin-defined PRODUCT-level attributes, keyed by attribute
+   * name. Before this existed, only `brand` and `material` could be enforced
+   * because they were the only columns to put a value in; anything else the
+   * admin defined was advisory. Now any PRODUCT attribute is enforceable.
+   */
+  attributes?: Record<string, unknown> | null;
   variants: Array<{ attributes: unknown }>;
 }
 
@@ -71,9 +78,28 @@ export function computeCompliance(
 
   for (const attr of attributes) {
     if (attr.appliesTo === 'PRODUCT') {
-      const field = PRODUCT_FIELDS[attr.name.toLowerCase()];
-      if (attr.isRequired && field && !state[field]) {
+      // Prefer the structured attribute map; fall back to the legacy columns
+      // so listings written before the map existed still validate.
+      const legacyField = PRODUCT_FIELDS[attr.name.toLowerCase()];
+      const raw =
+        state.attributes?.[attr.name] ??
+        state.attributes?.[attr.name.toLowerCase()] ??
+        (legacyField ? state[legacyField] : undefined);
+      const value = raw == null || raw === '' ? undefined : String(raw);
+
+      if (attr.isRequired && !value) {
         problems.push(`${attr.name} is required for this category`);
+        continue;
+      }
+      if (!value) continue;
+
+      if (attr.type === 'SELECT' && attr.options.length > 0 && !attr.options.includes(value)) {
+        problems.push(
+          `"${value}" is not a valid ${attr.name} (allowed: ${attr.options.join(', ')})`,
+        );
+      }
+      if (attr.type === 'NUMBER' && Number.isNaN(Number(value))) {
+        problems.push(`${attr.name} must be a number`);
       }
       continue;
     }

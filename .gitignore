@@ -147,3 +147,6 @@ dist
 # .sentryclirc
 
 /generated/prisma
+
+# Database dumps written by scripts/marketplace-teardown.ts
+backups/

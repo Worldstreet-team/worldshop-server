@@ -18,6 +18,11 @@ import adminRoutes from './routes/admin.routes';
 import downloadRoutes from './routes/download.routes';
 import vendorRoutes from './routes/vendor.routes';
 import storeRoutes from './routes/store.routes';
+import marketplaceStoreRoutes from './routes/marketplace.store.routes';
+import listingPublicRoutes from './routes/listing.public.routes';
+import chatRoutes from './routes/chat.routes';
+import marketplaceReviewRoutes from './routes/marketplace.review.routes';
+import reportRoutes from './routes/report.routes';
 import shippingRoutes from './routes/shipping.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
@@ -102,7 +107,12 @@ app.use('/api/v1/products/:productId/reviews', reviewRoutes);
 app.use('/api/v1/wishlist', wishlistRoutes);
 app.use('/api/v1/downloads', downloadRoutes);
 app.use('/api/v1/vendor', vendorRoutes);
-app.use('/api/v1/store', storeRoutes);
+app.use('/api/v1/store', storeRoutes); // legacy: vendor-fields-on-UserProfile store page
+app.use('/api/v1/stores', marketplaceStoreRoutes);
+app.use('/api/v1/listings', listingPublicRoutes);
+app.use('/api/v1/conversations', chatRoutes);
+app.use('/api/v1/reviews', marketplaceReviewRoutes);
+app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 // Error handlers

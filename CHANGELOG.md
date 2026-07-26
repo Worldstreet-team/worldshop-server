@@ -4,6 +4,301 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-07-26
+
+### Added — Public listing and store endpoints
+
+The buyer side had no way to view a single listing or a store's catalogue,
+which meant the contact loop could not be closed.
+
+- `GET /api/v1/listings/:idOrSlug` — a single public listing. Accepts either
+  form so links can be readable. Includes the seller's contact channels and
+  trust signals (`responseRate`, `avgResponseMins`, rating, verification), since
+  those decide whether a buyer makes contact. Increments `viewCount`
+  fire-and-forget — a counter update should never delay the page
+- `GET /api/v1/stores/:slug/listings` — a store's public catalogue, resolved
+  through the same visibility rule as the store page so an unpaid store's
+  catalogue is not reachable by guessing the URL
+
+Both enforce the two gates: listing PUBLISHED and store ACTIVE/GRACE. A listing
+failing either is reported as missing rather than hidden-but-acknowledged.
+
+### Fixed
+- **A vendor could not report a fake review on their own store.** A review's
+  target resolves to the store it is *about*, so the self-report guard blocked
+  the person most likely to notice one — which is the entire reason the
+  `FAKE_REVIEW` reason exists. The guard now applies to STORE and LISTING
+  targets only, and its message names the actual target type
+- `GET /api/v1/listings` accepted no `condition` filter, so the browse UI's
+  condition dropdown would have been silently ignored. `condition` is a
+  first-class column rather than a category attribute, so it filters uniformly
+  across every category instead of being redefined on each leaf.
+
+## [0.29.0] - 2026-07-26
+
+### Added — Vendor dashboard endpoint
+
+`GET /api/v1/stores/me/dashboard` — one call for the vendor landing page.
+
+The old dashboard answered "how much did I sell", which is no longer a
+question. This answers the two that replaced it: **is my store visible and
+until when**, and **is the subscription doing anything for me**.
+
+Returns `store` (status, publicly visible, verification), `subscription`
+(status, plan, period end, days remaining, store credit, last charge),
+`listings` (counts by status + plan limit), `inbox` (unread, open threads),
+`engagement` (inquiries this period, views, response rate, avg reply time),
+`reputation` (rating, review count, unreplied reviews), and a prioritised
+`alerts` array.
+
+Notes:
+- `engagement.since` is returned so the UI can label the window honestly. While a subscription is ACTIVE the frame is the current billing period — literally what the vendor's last $5 bought — otherwise the last 30 days
+- Alerts are ordered by what to deal with first: a dark store outranks an unread message
+- Listing counts use individual `count()` calls rather than `groupBy`, which throws on documents predating the `status` field
+- Unreplied reviews match `vendorReply` as null **or** unset, or the count would read zero forever
+
+The client (`worldshop-client`) is still the pre-pivot UI and has not been
+touched — its dashboard calls the dead `/vendor/analytics` and
+`/vendor/balance`, and its Orders/Withdrawals pages target removed features.
+
+## [0.28.0] - 2026-07-26
+
+### Changed — Legacy catalogue cleared
+Vendors will re-add products from scratch, so the pre-pivot catalogue was
+removed: 213 products, 69 variants, 2 stray carts. The 73 backfilled stores,
+their subscriptions, the seeded taxonomy and all 511 profiles are untouched.
+Legacy vendor fields were stripped from `UserProfile` (`stores` phase) now that
+`Store` is the source of truth.
+
+### Fixed
+- `publishListing` now enforces leaf-only categories. `assertLeafCategory` ran on create and update but not publish, so a listing could go live on a browse heading — reachable when a flat category later gained children, or when an admin added children to a category that already had listings. Attributes live on the leaf, so such a listing is unfilterable
+- The teardown `catalog` phase deleted products, variants, categories AND attributes in one step. Split: `listings` (products + variants, `--drop-listings`) and `catalog` (the taxonomy itself, `--drop-taxonomy`), so clearing old listings cannot destroy 97 seeded categories and 230 attributes
+- **`export` was not backing up the pivot models.** Its collection list was hardcoded and predated `Store`, `Subscription`, `SubscriptionCharge`, `StoreCreditEntry`, `Conversation`, `Message` and `Report` — so a "full backup" silently omitted 73 stores, 73 subscriptions and 10 credit entries, and the backup-verification guard on destructive phases was passing against an incomplete dump. It now reads the database's own collection list and reports drift against the known set in both directions
+
+### Known issue
+Pre-pivot documents predate later schema fields, so an absent enum value breaks
+aggregation: `groupBy(['status'])` on such rows throws
+`Attempted to serialize non-enum-compatible value 'null'`. Prisma applies
+defaults on plain reads, so only `groupBy`/`aggregate` are affected. No longer
+reachable for `Product` (all cleared), but the same shape will recur on any
+collection that gains an enum field with existing rows — write defaults in a
+backfill when that happens.
+
+## [0.27.0] - 2026-07-26
+
+### Added — Report Queue & Moderation (marketplace pivot, phase 5)
+
+With money off-platform there is nothing to refund, claw back or arbitrate, so
+de-listing is the platform's only enforcement lever — this queue is the whole of
+trust and safety.
+
+#### Two deliberate constraints
+- **Reporting requires an account.** Anonymous reports cannot be deduplicated or held to account, and a queue of unattributable claims is noise. (The schema still allows a null `reporterId`; the API does not expose it.)
+- **Nothing is auto-hidden on a report count.** Automatic takedown at N reports is a brigading tool — a competitor with five accounts could clear a rival off the marketplace. Counts are surfaced and ranked for a human instead.
+
+#### Behaviour
+- One open report per person per target, so a single determined reporter cannot inflate the count the queue is ranked by
+- `GET /admin/reports/queue` returns **one row per reported thing**, ranked by distinct reporters, with the reasons collected. A flat list of report rows buries the signal — twelve reports about one scam listing look identical to twelve unrelated complaints
+- Acting on or dismissing a report **closes every open report on the same target**. Resolving one and leaving eleven duplicates means the next admin redoes the investigation
+- Suspending or banning a store also hides its listings: store status alone removes it from browse, but individual listings stay reachable by direct link
+- A reported review is flagged immediately and stays **visible** — the dispute is public while it is open — and un-flags if the report is dismissed
+- Removing a review pulls it out of both rating rollups
+- Actions are type-checked against the target: `BAN_STORE` on a listing report is a 400
+- A target deleted after being reported shows as `(deleted)` rather than breaking the queue
+- Reporters can see their own history, without the internal `actionNote`
+
+#### API
+- `POST /api/v1/reports`, `GET /api/v1/reports/mine`
+- `GET /api/v1/admin/reports/queue` | `/stats` | `/` | `/:id`
+- `PATCH /api/v1/admin/reports/:id/claim`
+- `POST /api/v1/admin/reports/:id/dismiss` | `/action`
+
+### Fixed
+- `GET /api/v1/admin/reports/commission` was being shadowed by the new `/reports/:id` route and would have 500'd on an invalid ObjectId. Declared ahead of the param route, and report ids are now validated as 24-char hex with a 400 rather than reaching Prisma
+
+## [0.26.0] - 2026-07-26
+
+### Added — Reviews, Re-anchored to Chat (marketplace pivot, phase 4)
+
+`isVerified` used to mean "this user has a DELIVERED order for this product".
+There are no orders any more, so the anchor moved to the chat thread — without
+one this is an open fake-review surface, and that is the most common way
+classifieds platforms lose buyer trust.
+
+Two tiers:
+- **to review at all** — you must have messaged the store about that listing
+- **verified badge** — only if the vendor actually replied
+
+Requiring a *reply* to review at all would hand vendors a suppression switch:
+ignore anyone who sounds unhappy and they could never review you. Gating on the
+buyer's own action cannot be gamed from the vendor's side, and the badge still
+separates a real two-way exchange from a drive-by.
+
+#### Schema
+- `Review.storeId` — denormalised so the store rating rolls up without joining through every listing, and so a vendor cannot bury a bad review by deleting the listing it was left on
+- `Review.conversationId`, and `isVerified` re-anchored
+- `Review.vendorReply` / `vendorRepliedAt` — a public right of reply, which matters more here than in an ecommerce shop because vendors have no refund or resolution lever
+- `ReviewStatus` (PUBLISHED / FLAGGED / REMOVED) — flagged stays visible while an admin looks at it; removed drops out of both rollups
+
+#### Behaviour
+- Ratings roll up to the listing **and** the store on every create, edit, delete and moderation action
+- Editing a review's text clears the vendor's reply — leaving it attached would misrepresent what they were answering
+- Verified reviews sort first, and `?verifiedOnly=true` filters to them
+- Store review pages return `responseRate` and `avgResponseMins` alongside the rating: with nothing transacted on-platform, attentiveness matters as much as score
+- Vendors cannot review their own store
+
+#### API
+- `GET|POST /api/v1/listings/:id/reviews`
+- `GET /api/v1/listings/:id/reviews/eligibility` — so the UI can explain the rule before someone writes a review rather than rejecting it afterwards
+- `GET /api/v1/listings/:id/reviews/mine`
+- `PATCH|DELETE /api/v1/reviews/:id`
+- `POST|DELETE /api/v1/reviews/:id/reply`
+- `GET /api/v1/stores/:slug/reviews` — store reputation page
+- `PATCH /api/v1/admin/reviews/:id/status`
+
+The legacy order-anchored `review.service.ts` and `/api/v1/products/:productId/reviews`
+routes are left in place untouched, and go when the ecommerce models do.
+
+## [0.25.0] - 2026-07-26
+
+### Added — Buyer–Vendor Chat (marketplace pivot, phase 3)
+
+The primary contact channel. Three things are built on it: inquiry counts (the
+renewal argument), store response rate (the trust signal shown to buyers), and
+a replied-to thread (the review anchor, since there are no purchases to verify
+against).
+
+#### Schema
+- `Conversation` — one thread per buyer per listing (`@@unique([listingId, buyerId])`), with `lastMessageAt`, per-side unread counts, `vendorFirstReplyAt`, and `ConversationStatus` (OPEN/ARCHIVED/BLOCKED). `listingId` is `SetNull` so deleting a listing does not destroy the vendor's response record
+- `Message` — `senderRole` (BUYER/VENDOR), body, attachments, `readAt`, and `hasContactInfo`
+- `Store.responseRate`, `Store.avgResponseMins`, `Store.inquiryCount`
+- `Product.inquiryCount`
+
+#### Behaviour
+- Buyers open threads from a listing; vendors reply. A vendor cannot open a thread — that would be a broadcast channel to every registered user with no legitimate use
+- Only publicly visible listings can be messaged: an unpaid store's listings aren't browsable, so there was nothing to find
+- Inquiries count **once per thread**, not per message — it's the number vendors judge the subscription by
+- `responseRate` counts unanswered threads against the vendor, which is the honest reading of "will this seller reply to me". Recomputed from scratch on each first reply rather than kept as a running average
+- Only the counterpart's messages get `readAt`; stamping your own would make "seen" meaningless
+- Replying into an archived thread re-opens it
+- Contact-detail detection (Nigerian phone formats, spaced emails, WhatsApp/Telegram handles) records `hasContactInfo`. Policy is configurable via `CHAT_CONTACT_POLICY` = `flag` (default) / `redact` / `block` — default measures without intervening
+
+#### API
+- `POST /api/v1/conversations` — start or continue a thread
+- `GET /api/v1/conversations?side=buying|selling` — separate inboxes, since a user can be both
+- `GET /api/v1/conversations/unread` — single badge count
+- `GET /api/v1/conversations/:id`, `POST …/:id/messages`, `POST …/:id/read`, `POST …/:id/archive`
+- Non-participants get 404, not 403 — whether a thread exists is not their business
+
+### Fixed
+- `markRead` matched `readAt: null`, which never matches an unread message: Prisma's MongoDB connector guards equality with `$ne: [field, "$$REMOVE"]`, so a field that was never written is not null. Nothing was ever marked read. This is the third instance of the same trap in this codebase (after `Product.storeId` in the backfill and `Category.parentId` in the admin tree) — treat `field: null` filters on optional Mongo fields as suspect and pair them with `{ isSet: false }`
+
+## [0.24.0] - 2026-07-26
+
+### Added — Admin Category & Attribute Management
+
+The taxonomy is now managed through the API instead of only being seeded from
+code. Every guard here protects the two-level invariant that
+`listing.service.ts` depends on.
+
+#### Depth and structure
+- A parent must itself be top-level — a third level is rejected outright
+- A category with children cannot become a subcategory
+- A category with listings filed against it cannot be given children (that would invalidate every one of those listings, since listings may only sit on leaves)
+- `GET /api/v1/admin/categories/tree` — the taxonomy as a tree with per-leaf product and attribute counts
+
+#### Attribute CRUD (leaf categories only)
+- `GET|POST /api/v1/admin/categories/:id/attributes`
+- `PATCH /api/v1/admin/categories/:id/attributes/:attributeId`
+- `DELETE /api/v1/admin/categories/:id/attributes/:attributeId?force=true`
+- `PUT /api/v1/admin/categories/:id/attributes/order` — bulk reorder for drag-and-drop
+- Duplicate names rejected case-insensitively; `SELECT` requires at least one option; non-`SELECT` attributes are forced unfilterable, because free text has no shared vocabulary to filter on
+- Updating an attribute reports how many existing listings the change invalidates. Tightening standards is allowed — the admin just sees the blast radius
+- Deleting an in-use attribute needs `force=true`, and clears the orphaned key from affected listings so vendors are not blocked from editing them later
+
+### Fixed
+- Renaming a category no longer silently regenerates its slug — category slugs appear in browse URLs and vendor bookmarks, and fixing a typo should not break links. Opt in with `regenerateSlug: true`
+- Deactivating a parent category now deactivates its children instead of detaching them (`parentId: null`), which quietly promoted subcategories to top-level headings and made every listing under them unpublishable
+- `deleteCategory(moveProductsTo)` validates that the target is an active leaf
+- `adminCategoryTree` matches unset `parentId` as well as explicit null — in MongoDB those are different values, so top-level categories created through the admin API were missing from the tree. `createCategory` now always writes `parentId` explicitly
+
+## [0.23.0] - 2026-07-26
+
+### Added — Vendor Listings (marketplace pivot, phase 2)
+
+Vendors can now build a detailed catalogue that stays private until the store's
+$5 subscription clears. See `LISTINGS-DESIGN.md`.
+
+#### Schema
+- `Product.attributes` (Json) — values for admin-defined `CategoryAttribute`s: controlled vocabulary, validated, filterable
+- `Product.customFields` (Json) — up to 30 vendor-invented spec rows, display-only
+- `Product.status` (`ListingStatus`: DRAFT/PUBLISHED/HIDDEN/REMOVED), `publishedAt`, `condition`, `priceType` (`FIXED`/`RANGE`/`ON_REQUEST`), `maxPrice`, `isNegotiable`, `state`, `city`, `viewCount`
+- `ProductVariant.images` + `isAvailable` — per-variant photos, availability instead of stock
+- `CategoryAttribute.isFilterable`
+- `Report` — buyer reports on listings/stores/reviews for admin takedown
+
+#### Listing management
+- `requireStore` middleware — replaces `requireVendor` for the marketplace path; owning a store is what makes someone a vendor. Deliberately does not require a paid subscription, so vendors can author before they pay
+- `listing.service.ts` — create/update/publish/unpublish/delete scoped to the caller's store; two gates (listing `PUBLISHED` + store `ACTIVE`/`GRACE`) decide public visibility, enforced in one place
+- Publishing enforces the category's listing standards: required attributes, allowed `SELECT` values, numeric `NUMBER` values, at least one image. All problems returned at once
+- Attribute keys not defined by the category are rejected rather than dropped
+- Listings attach to leaf categories only — posting to a top-level category is refused
+- `listing-standards.service.ts` — PRODUCT-level attributes now validate against the structured map, not just the `brand`/`material` columns (a gap its own comments flagged)
+
+#### Taxonomy
+- `npm run seed:taxonomy` — 14 top-level categories, 81 leaves, 221 attributes, written for the Nigerian market (property Title Document, vehicle Registration status, Tecno/Infinix/itel, wig Length/Texture/Cap Type, local generator brands). Additive and idempotent; `--deactivate-unlisted` hides categories outside the taxonomy without deleting them
+
+#### Billing
+- Monthly plans now bill on the **same date each month** rather than every 30 days (`SubscriptionPlan.intervalMonths`, default 1). 30-day cycles drift — 12.17 charges a year instead of 12 — and a vendor who paid on the 3rd expects to pay on the 3rd
+- The day is clamped to the target month's length, so a store activated on 31 January renews on 28 February instead of skipping to 3 March
+
+#### API
+- `GET|POST /api/v1/stores/me/listings`, `GET|PATCH|DELETE …/:id`, `POST …/:id/publish`, `POST …/:id/unpublish`
+- `GET /api/v1/stores/me/listings/form-spec?categoryId=` — dynamic-form contract for a category
+- `GET /api/v1/listings` — public browse with `?attr.<Name>=<Value>` faceting on the structured layer
+
+## [0.22.0] - 2026-07-26
+
+### Added — Paid Stores & Subscriptions (marketplace pivot, phase 1)
+
+The shop is moving from on-platform selling to a paid listings marketplace:
+vendors pay $5/month to keep a store visible, buyers contact them directly.
+This release adds the store and billing layer. Existing ecommerce models are
+untouched so far — see `MARKETPLACE-SCHEMA-DIFF.md` for the full plan.
+
+#### Schema
+- `Store` — first-class store entity (owner, slug, contact channels, location, verification tier, rating/listing rollups). Replaces the vendor fields on `UserProfile`; `slug` is required, so it needs no partial index
+- `SubscriptionPlan`, `Subscription`, `SubscriptionCharge` — plans in USD minor units, one subscription per store, one charge row per billing period
+- `StoreStatus` (DRAFT/ACTIVE/GRACE/EXPIRED/SUSPENDED/BANNED), `VerificationTier`, `SubscriptionStatus`
+- `Product.storeId` — optional during migration, backfilled from `vendorId`
+
+#### Billing
+- `chargeWalletUsd` in `wallet.provider.ts` — charges a vendor's USD wallet outright for subscriptions (hold + immediate capture, 5-minute TTL so a crash between the two returns the funds). No FX: plans are priced natively in USD, unlike NGN-priced orders
+- `subscription.service.ts` — state machine (PENDING_PAYMENT → ACTIVE → GRACE → LAPSED), idempotent per billing period via a deterministic `chargeRef`, and `runRenewalSweep()` wired to an hourly interval in `server.ts`
+- Charging while the paid period is still running is a no-op — a repeated activation request cannot buy a second month. Prepaying requires an explicit `allowPrepay`
+
+#### API
+- `POST /api/v1/stores` — create a store (auth only; this is how a user becomes a vendor). Starts DRAFT, invisible to buyers
+- `GET|PATCH /api/v1/stores/me`, `GET /api/v1/stores/me/subscription`
+- `POST /api/v1/stores/me/subscription/charge` — activate or retry; 402 on insufficient balance
+- `POST /api/v1/stores/me/subscription/cancel` — stops auto-renewal, keeps paid time
+- `GET /api/v1/stores`, `GET /api/v1/stores/plans`, `GET /api/v1/stores/:slug` — public; unpaid, lapsed and suspended stores 404 rather than leaking their existence
+
+#### Store credit
+- `Store.creditMinor` + `StoreCreditEntry` — prepaid, non-withdrawable subscription value with an immutable audit trail; the balance can always be re-derived from the entries
+- `chargeSubscription` spends credit before the wallet, and records the split on the charge (`creditMinor` / `walletMinor`). A period can be part-credit, part-wallet
+- A declined wallet charge reverses any credit already spent on that period, so credit is never consumed by a period the vendor did not receive
+- `npm run convert:balances` — converts pre-pivot `VendorBalance` rows to credit at the live USD/NGN rate (`--rate=` to fix it), idempotent per vendor, leaves `VendorBalance` intact so it stays reversible
+- `npm run reset:credit` — zeroes every store's credit by writing `REVERSAL` entries, so the grant and its removal both stay in the audit trail
+
+#### Audit note
+The legacy vendor balances (₦523,170) were traced to their orders and payments before being honoured. All but ₦4,800 were backed by Flutterwave **test-mode** transactions — verified sandbox responses, no real funds. The single genuine charge in platform history is $3.49, waived by the buyer (the platform owner). Credit granted from those balances was reversed in full, and `VendorBalance` / `VendorWithdrawalAccount` were removed. See `MARKETPLACE-SCHEMA-DIFF.md` for the full trace.
+
+#### Scripts
+- `npm run seed:plans` — seeds the $5/30d `standard` plan (`--with-free-tier` adds a $0 plan that runs the same state machine)
+- `npm run backfill:stores` — creates `Store` rows from the 73 legacy vendor profiles and repoints their listings; dry-run by default
+- `npm run teardown` — staged removal of the ecommerce data (see script header)
+
 ## [0.21.0] - 2026-07-17
 
 ### Added — Fulfilment Lifecycle & Delivery Tracking (Test 7)

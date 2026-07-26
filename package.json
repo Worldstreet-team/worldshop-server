@@ -21,7 +21,13 @@
     "fix:storeslug-index": "npx ts-node scripts/fix-storeslug-index.ts",
     "db:push:prepare": "npx ts-node scripts/db-push-helper.ts prepare",
     "db:push:finish": "npx ts-node scripts/db-push-helper.ts finish",
-    "seed:config": "npx ts-node scripts/seed-marketplace-config.ts"
+    "seed:config": "npx ts-node scripts/seed-marketplace-config.ts",
+    "teardown": "npx ts-node scripts/marketplace-teardown.ts",
+    "seed:plans": "npx ts-node scripts/seed-subscription-plans.ts",
+    "backfill:stores": "npx ts-node scripts/backfill-stores.ts",
+    "convert:balances": "npx ts-node scripts/convert-vendor-balances.ts",
+    "reset:credit": "npx ts-node scripts/reset-store-credit.ts",
+    "seed:taxonomy": "npx ts-node scripts/seed-taxonomy.ts"
   },
   "keywords": [
     "worldstreet",
