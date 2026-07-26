@@ -33,6 +33,13 @@ export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 
 export const updateStoreSchema = z.object({
   name: z.string().min(3).max(60).optional(),
+  // Contact fields are nullable here, unlike on create: `optional` alone means
+  // "omit to keep", leaving no way to CLEAR a phone number once set. null
+  // unsets the field.
+  phone: z.string().regex(/^\+?[0-9\s-]{7,20}$/, 'Enter a valid phone number').nullable().optional(),
+  whatsapp: z.string().regex(/^\+?[0-9\s-]{7,20}$/, 'Enter a valid WhatsApp number').nullable().optional(),
+  email: z.string().email('Enter a valid email address').nullable().optional(),
+  website: z.string().url('Enter a valid URL').max(200).nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
   logo: z.string().max(300).nullable().optional(),
   banner: z.string().max(300).nullable().optional(),
@@ -43,7 +50,6 @@ export const updateStoreSchema = z.object({
   // Renaming keeps the old slug unless this is explicitly set — existing links
   // to the store should not break as a side effect of an edit.
   regenerateSlug: z.boolean().optional(),
-  ...contactSchema,
 });
 
 export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;

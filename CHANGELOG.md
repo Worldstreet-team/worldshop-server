@@ -24,6 +24,19 @@ Both enforce the two gates: listing PUBLISHED and store ACTIVE/GRACE. A listing
 failing either is reported as missing rather than hidden-but-acknowledged.
 
 ### Fixed
+- `PATCH /stores/me` contact fields (`phone`, `whatsapp`, `email`, `website`)
+  were `optional` but not `nullable`, so a vendor could never CLEAR a phone
+  number once set — omitting keeps, and `""` fails format validation. They now
+  accept `null` to unset
+
+### Added
+- `GET /api/v1/stores/me/reviews` — the owner's view of their own reviews,
+  behind `requireStore` rather than the public store route. That route enforces
+  visibility, so a vendor whose subscription lapsed could not read or answer
+  reviews on their own store — arguably when they need to most. Supports
+  `?unrepliedOnly=true`, matching `vendorReply` as null **or unset**
+
+### Fixed
 - **A vendor could not report a fake review on their own store.** A review's
   target resolves to the store it is *about*, so the self-report guard blocked
   the person most likely to notice one — which is the entire reason the
