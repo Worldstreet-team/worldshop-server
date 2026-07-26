@@ -240,7 +240,6 @@ export async function publishListing(
 
   await assertListingStandards({
     categoryId: listing.categoryId,
-    type: listing.type,
     images: listing.images,
     brand: listing.brand,
     material: listing.material,

@@ -27,42 +27,6 @@ const imageUpload = multer({
   },
 });
 
-// ─── Digital file uploads ───────────────────────────────────────
-
-const digitalFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedMimes = [
-    // Documents
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
-    'text/csv',
-    // Archives
-    'application/zip',
-    'application/x-rar-compressed',
-    'application/gzip',
-    // E-books
-    'application/epub+zip',
-  ];
-  if (allowedMimes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV, ZIP, RAR, GZIP, EPUB`));
-  }
-};
-
-const digitalUpload = multer({
-  storage,
-  fileFilter: digitalFileFilter,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB per file
-    files: 10, // Max 10 files at once
-  },
-});
 
 /**
  * uploadProductImages — Multer middleware for product image uploads.
@@ -76,18 +40,12 @@ export const uploadProductImages = imageUpload.array('images', 10);
 export const uploadCategoryImage = imageUpload.single('image');
 
 /**
- * uploadDigitalFiles — Multer middleware for digital product file uploads.
- * Accepts up to 10 files on the "files" field. Max 100MB per file.
- */
-export const uploadDigitalFiles = digitalUpload.array('files', 10);
-
-/**
  * handleMulterError — Error handler for multer-specific errors.
  */
 export function handleMulterError(err: Error, _req: Request, res: Response, next: NextFunction): void {
   if (err instanceof MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      res.status(400).json({ success: false, message: 'File too large. Maximum size is 100MB for digital files or 5MB for images.' });
+      res.status(400).json({ success: false, message: 'File too large. Maximum image size is 5MB.' });
       return;
     }
     if (err.code === 'LIMIT_FILE_COUNT') {

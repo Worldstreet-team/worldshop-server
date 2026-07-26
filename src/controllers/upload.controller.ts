@@ -2,7 +2,6 @@ import { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import catchAsync from '../utils/catchAsync';
 import * as uploadService from '../services/upload.service';
-import * as digitalAssetService from '../services/digitalAsset.service';
 
 /**
  * POST /api/v1/admin/upload/images
@@ -47,93 +46,3 @@ export const deleteImages = catchAsync(async (req: Request, res: Response, _next
   });
 });
 
-/**
- * POST /api/v1/admin/upload/digital-files
- * Upload digital product files to Cloudflare R2.
- * Returns array of { key, fileName, mimeType, fileSize }.
- */
-export const uploadDigitalFiles = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const files = (req as any).files as { buffer: Buffer; originalname: string; mimetype: string; size: number }[];
-
-  if (!files || files.length === 0) {
-    res.status(400).json({ success: false, message: 'No files provided.' });
-    return;
-  }
-
-  const results = await digitalAssetService.uploadMultipleDigitalFiles(files);
-
-  res.status(201).json({
-    success: true,
-    data: results,
-  });
-});
-
-/**
- * POST /api/v1/admin/products/:id/digital-assets
- * Attach uploaded digital files to a product.
- * Body: { files: [{ key, fileName, mimeType, fileSize }] }
- *    or  { assets: [{ r2Key, fileName, mimeType, fileSize }] }
- *    or a single object instead of an array.
- */
-export const attachDigitalAssets = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const productId = req.params.id as string;
-  const raw = req.body.files ?? req.body.assets ?? req.body;
-
-  // Normalize: accept a single file object or an array of files
-  const incoming = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && (raw.key || raw.r2Key || raw.fileName) ? [raw] : [];
-
-  if (incoming.length === 0) {
-    res.status(400).json({ success: false, message: 'Provide at least one file to attach.' });
-    return;
-  }
-
-  // Normalize field names: accept both `key`/`r2Key` and `size`/`fileSize`
-  // Derive fileName from the R2 key if not provided (e.g. "digital-products/abc123.pdf" → "abc123.pdf")
-  const filesArray: digitalAssetService.DigitalUploadResult[] = incoming.map((f: any) => {
-    const key: string = f.key || f.r2Key || '';
-    const fileName: string = f.fileName || key.split('/').pop() || 'unnamed-file';
-    return {
-      key,
-      fileName,
-      mimeType: f.mimeType || 'application/octet-stream',
-      fileSize: f.fileSize ?? f.size ?? 0,
-    };
-  });
-
-  await digitalAssetService.createDigitalAssets(productId, filesArray);
-  const assets = await digitalAssetService.getProductDigitalAssets(productId);
-
-  res.status(201).json({
-    success: true,
-    data: assets,
-    message: `${filesArray.length} digital asset(s) attached.`,
-  });
-});
-
-/**
- * GET /api/v1/admin/products/:id/digital-assets
- * Get digital assets for a product (with signed URLs).
- */
-export const getDigitalAssets = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const productId = req.params.id as string;
-  const assets = await digitalAssetService.getProductDigitalAssets(productId);
-
-  res.status(200).json({
-    success: true,
-    data: assets,
-  });
-});
-
-/**
- * DELETE /api/v1/admin/digital-assets/:assetId
- * Delete a single digital asset (from R2 + DB).
- */
-export const deleteDigitalAsset = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
-  const assetId = req.params.assetId as string;
-  await digitalAssetService.deleteDigitalAsset(assetId);
-
-  res.status(200).json({
-    success: true,
-    message: 'Digital asset deleted.',
-  });
-});

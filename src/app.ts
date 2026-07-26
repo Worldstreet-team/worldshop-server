@@ -5,25 +5,13 @@ import { clerkMiddleware } from '@clerk/express';
 
 import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
-import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
-import cartRoutes from './routes/cart.routes';
-import addressRoutes from './routes/address.routes';
-import checkoutRoutes from './routes/checkout.routes';
-import orderRoutes from './routes/order.routes';
-import paymentRoutes from './routes/payment.routes';
-import reviewRoutes from './routes/review.routes';
-import wishlistRoutes from './routes/wishlist.routes';
 import adminRoutes from './routes/admin.routes';
-import downloadRoutes from './routes/download.routes';
-import vendorRoutes from './routes/vendor.routes';
-import storeRoutes from './routes/store.routes';
 import marketplaceStoreRoutes from './routes/marketplace.store.routes';
 import listingPublicRoutes from './routes/listing.public.routes';
 import chatRoutes from './routes/chat.routes';
 import marketplaceReviewRoutes from './routes/marketplace.review.routes';
 import reportRoutes from './routes/report.routes';
-import shippingRoutes from './routes/shipping.routes';
 import catchAll404Errors from './middlewares/catchAll404Errors';
 import globalErrorHandler from './middlewares/errorHandler';
 import { healthCheck } from './utils/health';
@@ -58,13 +46,7 @@ app.use(cors({
 app.use(clerkMiddleware());
 
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    if ((req as Request).originalUrl === '/api/v1/payments/webhook/flutterwave') {
-      (req as Request & { rawBody?: string }).rawBody = buf.toString('utf8');
-    }
-  },
-}));
+app.use(express.json());
 
 // Routes
 app.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -72,21 +54,17 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
     status: 'success',
     name: 'WorldStreet Shop API',
     version: 'v1',
-    description: 'Backend API for WorldStreet Shop ecommerce platform.',
+    description: 'Backend API for the WorldStreet marketplace.',
     health: '/health',
     baseUrl: '/api/v1',
     endpoints: {
-      profile: '/api/v1/profile',
-      products: '/api/v1/products',
+      listings: '/api/v1/listings',
+      stores: '/api/v1/stores',
       categories: '/api/v1/categories',
-      cart: '/api/v1/cart',
-      addresses: '/api/v1/addresses',
-      checkout: '/api/v1/checkout',
-      orders: '/api/v1/orders',
-      payments: '/api/v1/payments',
-      reviews: '/api/v1/products/:productId/reviews',
-      wishlist: '/api/v1/wishlist',
-      downloads: '/api/v1/downloads',
+      conversations: '/api/v1/conversations',
+      reviews: '/api/v1/reviews',
+      reports: '/api/v1/reports',
+      profile: '/api/v1/profile',
       admin: '/api/v1/admin',
     },
   });
@@ -95,19 +73,7 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
 app.use('/health', healthCheck);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/profile', profileRoutes);
-app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/categories', categoryRoutes);
-app.use('/api/v1/cart', cartRoutes);
-app.use('/api/v1/addresses', addressRoutes);
-app.use('/api/v1/checkout', checkoutRoutes);
-app.use('/api/v1/shipping', shippingRoutes);
-app.use('/api/v1/orders', orderRoutes);
-app.use('/api/v1/payments', paymentRoutes);
-app.use('/api/v1/products/:productId/reviews', reviewRoutes);
-app.use('/api/v1/wishlist', wishlistRoutes);
-app.use('/api/v1/downloads', downloadRoutes);
-app.use('/api/v1/vendor', vendorRoutes);
-app.use('/api/v1/store', storeRoutes); // legacy: vendor-fields-on-UserProfile store page
 app.use('/api/v1/stores', marketplaceStoreRoutes);
 app.use('/api/v1/listings', listingPublicRoutes);
 app.use('/api/v1/conversations', chatRoutes);

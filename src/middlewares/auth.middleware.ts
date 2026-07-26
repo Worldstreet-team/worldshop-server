@@ -22,10 +22,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // Fetch Clerk user details for name/email
     const clerkUser = await clerkClient.users.getUser(auth.userId);
 
-    // Fetch role + vendor fields from our database
+    // Fetch the role from our database
     const profile = await prisma.userProfile.findUnique({
       where: { userId: auth.userId },
-      select: { role: true, isVendor: true, vendorStatus: true },
+      select: { role: true },
     });
 
     req.user = {
@@ -34,8 +34,6 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       firstName: clerkUser.firstName || '',
       lastName: clerkUser.lastName || '',
       role: (profile?.role as 'CUSTOMER' | 'ADMIN') || 'CUSTOMER',
-      isVendor: profile?.isVendor ?? false,
-      vendorStatus: (profile?.vendorStatus as 'ACTIVE' | 'SUSPENDED' | 'BANNED') ?? null,
     };
 
     next();
@@ -61,7 +59,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
 
       const profile = await prisma.userProfile.findUnique({
         where: { userId: auth.userId },
-        select: { role: true, isVendor: true, vendorStatus: true },
+        select: { role: true },
       });
 
       req.user = {
@@ -70,8 +68,6 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
         firstName: clerkUser.firstName || '',
         lastName: clerkUser.lastName || '',
         role: (profile?.role as 'CUSTOMER' | 'ADMIN') || 'CUSTOMER',
-        isVendor: profile?.isVendor ?? false,
-        vendorStatus: (profile?.vendorStatus as 'ACTIVE' | 'SUSPENDED' | 'BANNED') ?? null,
       };
     }
   } catch {

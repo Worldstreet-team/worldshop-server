@@ -13,7 +13,6 @@ import type { CategoryAttribute } from '../../generated/prisma';
 
 export interface ListingState {
   categoryId: string | null;
-  type: string;
   images: unknown;
   brand?: string | null;
   material?: string | null;
@@ -72,7 +71,8 @@ export function computeCompliance(
     problems.push('A category is required');
   }
 
-  if (state.type === 'PHYSICAL' && imageCount(state.images) === 0) {
+  // Every listing needs a photo — a classifieds entry without one is noise.
+  if (imageCount(state.images) === 0) {
     problems.push('At least one product image is required');
   }
 
@@ -148,7 +148,6 @@ export async function assertListingStandards(state: ListingState): Promise<void>
 export async function annotateCompliance<
   T extends {
     categoryId: string | null;
-    type: string;
     images: unknown;
     brand: string | null;
     material: string | null;

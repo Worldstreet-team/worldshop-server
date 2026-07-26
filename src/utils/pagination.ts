@@ -1,4 +1,16 @@
-import type { Pagination, PaginatedResult } from '../types/product.types';
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  pagination: Pagination;
+}
 
 /**
  * buildPagination — Creates a Pagination metadata object.

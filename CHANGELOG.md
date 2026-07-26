@@ -4,6 +4,61 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] - 2026-07-27
+
+### Removed — The ecommerce API
+
+The final teardown. With the client fully post-pivot, nothing called this code,
+and the marketplace is now the whole of the server.
+
+#### Routes gone
+`/cart`, `/checkout`, `/orders`, `/payments` (incl. the Flutterwave webhook and
+its raw-body capture), `/shipping`, `/wishlist`, `/downloads`, `/addresses`,
+`/products` (public browse), `/products/:id/reviews` (order-anchored reviews),
+`/vendor/*` (the isVendor-gated surface), `/store/:slug` (legacy). Admin loses
+orders, inventory, product CRUD, digital assets, vendors, withdrawals,
+commission and dashboard-stats; what remains is reports, review moderation,
+categories + attributes, uploads and users.
+
+#### Code gone
+~25 services, ~20 controllers, 12 route files, 13 validators, 8 type files,
+`vendor.middleware`, the demo seed, and five one-shot migration scripts that
+had done their jobs (`backfill-stores`, `convert-vendor-balances`,
+`fix-*-index`, `seed-marketplace-config`). `wallet.provider` is trimmed to the
+two things the marketplace uses: the FX helper and `chargeWalletUsd`.
+`email.service` and both ledger services went with their only consumers.
+Listing standards drop the PHYSICAL/DIGITAL split — every listing now requires
+at least one photo.
+
+#### Schema gone
+17 models (`Cart`, `CartItem`, `Order`, `OrderItem`, `OrderStatusHistory`,
+`Payment`, `DeliveryPartner`, `ShippingMethod`, `DigitalAsset`,
+`DownloadRecord`, `Wishlist`, `WishlistItem`, `Address`, `VendorBalance`,
+`VendorWithdrawalAccount`, `VendorWithdrawalRequest`, `LedgerEntry`) and six
+enums. `UserProfile` loses the legacy vendor fields (`isVendor`,
+`vendorStatus`, `storeName`, `storeSlug`, `storeDescription`, `vendorSince`) —
+`Store` has been the source of truth since the backfill. `Product` and
+`ProductVariant` lose their inventory/checkout fields (stock, SKUs, salePrice,
+approvalStatus, PHYSICAL/DIGITAL type, order/cart relations).
+
+#### Database
+- Dropped both partial unique indexes (`UserProfile_storeSlug_key`,
+  `Cart_userId_key`) and 17 legacy collections — each verified **empty before
+  dropping**, except one stray guest cart (transient by design, cleared with
+  prior approval). `Address` (9 docs) was dropped after explicit
+  approval, verified present in both backups first
+- **`prisma db push` now runs plainly** — the first time in this repo's
+  history. The prepare/finish sandwich existed solely for those two partial
+  indexes, and `db-push-helper.ts` is deleted with the `db:push:*`,
+  `fix:*-index`, `seed`, `seed:config`, `backfill:stores`, `convert:balances`
+  and `migrate:*` scripts
+
+#### Auth
+`JwtPayload` no longer carries `isVendor`/`vendorStatus`; `requireStore` is the
+only vendor gate. The legacy test suites (vendor, checkout, ledger, payment,
+phase7, store) are deleted — including the three long-standing failures, which
+died with the code they tested.
+
 ## [0.30.0] - 2026-07-26
 
 ### Added — Public listing and store endpoints

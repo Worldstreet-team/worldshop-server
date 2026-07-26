@@ -6,8 +6,6 @@ export interface JwtPayload {
   firstName: string;
   lastName: string;
   role: 'CUSTOMER' | 'ADMIN';
-  isVendor: boolean;
-  vendorStatus: 'ACTIVE' | 'SUSPENDED' | 'BANNED' | null;
 }
 
 /** Set by requireStore — the caller's own store. */
