@@ -105,6 +105,18 @@ export async function signProductImages(
         }
       }
 
+      // Fallback: `key` is what the upload endpoint returned before it also
+      // emitted `cloudflareId`/`url`. Records written in that window have the
+      // R2 key under this name and nothing else usable, so without this they
+      // stay permanently unrenderable.
+      if (typeof img.key === 'string' && img.key) {
+        try {
+          return { ...img, url: await signR2Key(img.key) };
+        } catch {
+          // Signing failed — return the image as-is rather than dropping it
+        }
+      }
+
       return img;
     }),
   );

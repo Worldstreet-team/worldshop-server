@@ -9,6 +9,15 @@ export interface UploadResult {
   key: string;
   /** A presigned URL for immediate display */
   signedUrl: string;
+  /**
+   * `cloudflareId` and `url` duplicate `key` and `signedUrl` under the names
+   * the rest of the system uses for a stored image. Clients persist this object
+   * into Product.images verbatim, and signProductImages re-signs on read by
+   * looking for exactly these two fields — an image saved without them has no
+   * displayable URL and cannot be re-signed once the presigned URL expires.
+   */
+  cloudflareId: string;
+  url: string;
   originalName: string;
   size: number;
   mimeType: string;
@@ -35,9 +44,13 @@ export async function uploadImage(
     }),
   );
 
+  const signedUrl = await signR2Key(key);
+
   return {
     key,
-    signedUrl: await signR2Key(key),
+    signedUrl,
+    cloudflareId: key,
+    url: signedUrl,
     originalName: file.originalname,
     size: file.size,
     mimeType: file.mimetype,
