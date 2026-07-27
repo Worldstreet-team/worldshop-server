@@ -21,7 +21,11 @@
 import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { slugify } from '../utils/slugify';
-import { assertListingStandards, getCategoryAttributes } from './listing-standards.service';
+import {
+  annotateCompliance,
+  assertListingStandards,
+  getCategoryAttributes,
+} from './listing-standards.service';
 import { isVisibleStatus } from './subscription.service';
 import { Prisma } from '../../generated/prisma';
 import type {
@@ -312,7 +316,10 @@ export async function listMyListings(storeId: string, query: ListingQueryInput) 
     prisma.product.count({ where }),
   ]);
 
-  return { listings, total };
+  // Annotated here rather than only at publish time: the vendor needs to see
+  // what is blocking a draft on the list itself, without having to click
+  // Publish and catch a toast that disappears.
+  return { listings: await annotateCompliance(listings), total };
 }
 
 export async function getMyListing(storeId: string, listingId: string) {

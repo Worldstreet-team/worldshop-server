@@ -142,8 +142,28 @@ export async function assertListingStandards(state: ListingState): Promise<void>
 }
 
 /**
+ * Category-level problems that block publishing but are not attribute rules,
+ * so they live outside computeCompliance. These mirror assertLeafCategory in
+ * listing.service — the wording is kept identical on purpose, so the blocker
+ * listed on the row is the same sentence the publish attempt would return.
+ */
+function categoryProblems(
+  category: { name: string; isActive: boolean; childCount: number } | undefined,
+): string[] {
+  if (!category || !category.isActive) return ['That category is not available'];
+  if (category.childCount > 0) {
+    return [`"${category.name}" is a top-level category — choose one of its subcategories`];
+  }
+  return [];
+}
+
+/**
  * Batch compliance annotation for vendor product lists — one attribute query
- * for all categories on the page.
+ * and one category query for all categories on the page.
+ *
+ * This is what the vendor UI reads to explain, before they click anything, why
+ * a draft cannot go live. It therefore has to cover every gate publishListing
+ * applies, not just the attribute rules.
  */
 export async function annotateCompliance<
   T extends {
@@ -155,9 +175,18 @@ export async function annotateCompliance<
   },
 >(products: T[]): Promise<Array<T & { compliance: ComplianceResult }>> {
   const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((id): id is string => !!id))];
-  const attributes = categoryIds.length
-    ? await prisma.categoryAttribute.findMany({ where: { categoryId: { in: categoryIds } } })
-    : [];
+
+  const [attributes, categories] = await Promise.all([
+    categoryIds.length
+      ? prisma.categoryAttribute.findMany({ where: { categoryId: { in: categoryIds } } })
+      : Promise.resolve([]),
+    categoryIds.length
+      ? prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true, isActive: true, _count: { select: { children: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
 
   const byCategory = new Map<string, CategoryAttribute[]>();
   for (const attr of attributes) {
@@ -166,11 +195,20 @@ export async function annotateCompliance<
     byCategory.set(attr.categoryId, list);
   }
 
-  return products.map((product) => ({
-    ...product,
-    compliance: computeCompliance(
-      product,
-      product.categoryId ? (byCategory.get(product.categoryId) ?? []) : [],
-    ),
-  }));
+  const categoryById = new Map(
+    categories.map((c) => [c.id, { name: c.name, isActive: c.isActive, childCount: c._count.children }]),
+  );
+
+  return products.map((product) => {
+    const attrs = product.categoryId ? (byCategory.get(product.categoryId) ?? []) : [];
+    const base = computeCompliance(product, attrs);
+    // Only meaningful once a category is set; "A category is required" already
+    // covers the empty case and would otherwise be doubled up.
+    const catProblems = product.categoryId
+      ? categoryProblems(categoryById.get(product.categoryId))
+      : [];
+    const problems = [...catProblems, ...base.problems];
+
+    return { ...product, compliance: { compliant: problems.length === 0, problems } };
+  });
 }
