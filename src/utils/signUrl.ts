@@ -166,3 +166,17 @@ export async function signCategoryRecords<T extends { image?: string | null }>(
 ): Promise<T[]> {
   return Promise.all(categories.map((c) => signCategoryRecord(c)));
 }
+
+/**
+ * Sign store branding (logo/banner). Stored values may be bare R2 keys or
+ * full presigned URLs captured at upload time that have since expired —
+ * signR2Key handles both, and passes `/relative` static paths through.
+ */
+export async function signStoreBranding<
+  T extends { logo?: string | null; banner?: string | null },
+>(store: T): Promise<T> {
+  const out = { ...store };
+  if (out.logo) out.logo = await signR2Key(out.logo);
+  if (out.banner) out.banner = await signR2Key(out.banner);
+  return out;
+}

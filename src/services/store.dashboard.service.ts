@@ -18,6 +18,7 @@ import prisma from '../configs/prismaConfig';
 import { globalLog as logger } from '../configs/loggerConfig';
 import { isVisibleStatus } from './subscription.service';
 import { getWalletUsdBalance } from './payment/providers/wallet.provider';
+import { signR2Key } from '../utils/signUrl';
 
 const DAY_MS = 86_400_000;
 
@@ -185,7 +186,9 @@ export async function getDashboard(ownerId: string) {
       id: store.id,
       name: store.name,
       slug: store.slug,
-      logo: store.logo,
+      // Stored as an R2 key or an expired presigned URL; only a fresh
+      // signature renders. Same rule as every other read path.
+      logo: store.logo ? await signR2Key(store.logo) : store.logo,
       status: store.status,
       verificationTier: store.verificationTier,
       publiclyVisible,

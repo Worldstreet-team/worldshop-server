@@ -26,6 +26,7 @@ import {
   assertListingStandards,
   getCategoryAttributes,
 } from './listing-standards.service';
+import { signProductRecord, signProductRecords, signStoreBranding } from '../utils/signUrl';
 import { isVisibleStatus } from './subscription.service';
 import { Prisma } from '../../generated/prisma';
 import type {
@@ -319,14 +320,16 @@ export async function listMyListings(storeId: string, query: ListingQueryInput) 
   // Annotated here rather than only at publish time: the vendor needs to see
   // what is blocking a draft on the list itself, without having to click
   // Publish and catch a toast that disappears.
-  return { listings: await annotateCompliance(listings), total };
+  const annotated = await annotateCompliance(listings);
+  return { listings: await signProductRecords(annotated), total };
 }
 
 export async function getMyListing(storeId: string, listingId: string) {
-  return prisma.product.findFirst({
+  const listing = await prisma.product.findFirst({
     where: { id: listingId, storeId },
     include: { variants: true, category: true },
   });
+  return listing ? signProductRecord(listing) : listing;
 }
 
 /**
@@ -395,7 +398,9 @@ export async function getPublicListing(idOrSlug: string) {
     .update({ where: { id: listing.id }, data: { viewCount: { increment: 1 } } })
     .catch(() => undefined);
 
-  return listing;
+  const signed = await signProductRecord(listing);
+  if (signed.store) signed.store = await signStoreBranding(signed.store);
+  return signed;
 }
 
 /** A store's public catalogue, for its storefront page. */
@@ -424,7 +429,7 @@ export async function listStoreListings(
     prisma.product.count({ where }),
   ]);
 
-  return { listings, total };
+  return { listings: await signProductRecords(listings), total };
 }
 
 /** Public browse. Both gates enforced here, in one place. */
@@ -473,5 +478,5 @@ export async function listPublicListings(query: {
     prisma.product.count({ where }),
   ]);
 
-  return { listings, total };
+  return { listings: await signProductRecords(listings), total };
 }

@@ -17,6 +17,7 @@ import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { globalLog as logger } from '../configs/loggerConfig';
 import { isVisibleStatus } from './subscription.service';
+import { signProductImages, signR2Key } from '../utils/signUrl';
 import { Prisma, type SenderRole } from '../../generated/prisma';
 
 const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
@@ -237,6 +238,27 @@ const THREAD_INCLUDE = {
 } as const;
 
 /**
+ * Sign the R2-backed media on a thread (listing photos, store logo) before it
+ * leaves the server. Stored values are keys or expired presigned URLs; only a
+ * fresh signature renders.
+ */
+async function signThreadMedia<
+  T extends {
+    listing?: { images?: unknown } | null;
+    store?: { logo?: string | null } | null;
+  },
+>(thread: T): Promise<T> {
+  const out = { ...thread };
+  if (out.listing?.images) {
+    out.listing = { ...out.listing, images: await signProductImages(out.listing.images) };
+  }
+  if (out.store?.logo) {
+    out.store = { ...out.store, logo: await signR2Key(out.store.logo) };
+  }
+  return out;
+}
+
+/**
  * The caller's threads. A user can be both a buyer and a vendor, so the side
  * is explicit rather than inferred — an inbox that silently mixes "messages I
  * sent about things I want" with "customers asking about my stock" is unusable.
@@ -276,12 +298,14 @@ export async function listConversations(
   ]);
 
   return {
-    conversations: conversations.map((c) => ({
-      ...c,
-      lastMessage: c.messages[0] ?? null,
-      unread: opts.side === 'selling' ? c.vendorUnread : c.buyerUnread,
-      messages: undefined,
-    })),
+    conversations: await Promise.all(
+      conversations.map(async (c) => ({
+        ...(await signThreadMedia(c)),
+        lastMessage: c.messages[0] ?? null,
+        unread: opts.side === 'selling' ? c.vendorUnread : c.buyerUnread,
+        messages: undefined,
+      })),
+    ),
     total,
     unreadTotal:
       (opts.side === 'selling' ? unreadTotal._sum.vendorUnread : unreadTotal._sum.buyerUnread) ?? 0,
@@ -308,7 +332,7 @@ export async function getConversation(
   });
 
   return {
-    ...conversation!,
+    ...(await signThreadMedia(conversation!)),
     // Oldest-first for display; newest-first was only for pagination.
     messages: [...conversation!.messages].reverse(),
     myRole: role,

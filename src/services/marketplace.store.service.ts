@@ -14,6 +14,7 @@
 import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { slugify } from '../utils/slugify';
+import { signStoreBranding } from '../utils/signUrl';
 import { createSubscription, isVisibleStatus } from './subscription.service';
 import type { CreateStoreInput, UpdateStoreInput } from '../validators/store.validator';
 import { Prisma, type Store } from '../../generated/prisma';
@@ -103,7 +104,7 @@ export async function getMyStore(ownerId: string) {
   if (!store) throw createError(404, 'You do not have a store yet');
 
   return {
-    ...store,
+    ...(await signStoreBranding(store)),
     isPubliclyVisible: isVisibleStatus(store.status),
   };
 }
@@ -146,7 +147,7 @@ export async function updateStore(ownerId: string, input: UpdateStoreInput) {
 export async function getPublicStoreBySlug(slug: string): Promise<Store | null> {
   const store = await prisma.store.findUnique({ where: { slug } });
   if (!store || !isVisibleStatus(store.status)) return null;
-  return store;
+  return signStoreBranding(store);
 }
 
 /** Browse: only stores currently paid up. */
@@ -166,5 +167,5 @@ export async function listPublicStores(opts: { page: number; limit: number; stat
     prisma.store.count({ where }),
   ]);
 
-  return { stores, total };
+  return { stores: await Promise.all(stores.map(signStoreBranding)), total };
 }
