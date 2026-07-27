@@ -15,7 +15,9 @@
  */
 import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
+import { globalLog as logger } from '../configs/loggerConfig';
 import { isVisibleStatus } from './subscription.service';
+import { getWalletUsdBalance } from './payment/providers/wallet.provider';
 
 const DAY_MS = 86_400_000;
 
@@ -57,6 +59,7 @@ export async function getDashboard(ownerId: string) {
     threadsThisPeriod,
     unrepliedReviews,
     lastCharge,
+    walletUsd,
   ] = await Promise.all([
     // Counted individually rather than with groupBy: an enum value that was
     // never written breaks aggregation, and a dashboard should not be the
@@ -88,11 +91,30 @@ export async function getDashboard(ownerId: string) {
         walletMinor: true, chargedAt: true, failureCode: true, periodEnd: true,
       },
     }),
+
+    // The wallet lives in another service, so this is the one part of the
+    // dashboard that can fail on its own. It is informational — knowing the
+    // balance is not worth failing the whole screen for — so a failure
+    // degrades to null and the UI simply omits the figure.
+    getWalletUsdBalance(store.ownerId).catch((err) => {
+      logger.warn('[Dashboard] Wallet balance unavailable', {
+        storeId: store.id,
+        error: (err as Error).message,
+      });
+      return null;
+    }),
   ]);
 
   const unread = unreadAgg._sum.vendorUnread ?? 0;
   const daysRemaining = daysUntil(subscription?.currentPeriodEnd);
   const publiclyVisible = isVisibleStatus(store.status);
+
+  // What the next charge actually takes from the wallet. Credit is spent
+  // first, so a vendor with enough credit needs no wallet balance at all —
+  // telling them to top up in that case would be wrong.
+  const dueMinor = subscription
+    ? Math.max(subscription.plan.amountMinor - Math.min(store.creditMinor, subscription.plan.amountMinor), 0)
+    : 0;
 
   // Ordered by what the vendor should deal with first: their store being dark
   // outranks an unread message.
@@ -202,6 +224,19 @@ export async function getDashboard(ownerId: string) {
       // null = unlimited
       limit: subscription?.plan.listingLimit ?? null,
     },
+
+    // null when the wallet service could not be reached — the UI must treat
+    // that as "unknown", not as "empty".
+    wallet: walletUsd
+      ? {
+          currency: 'USD',
+          availableMinor: walletUsd.availableMinor,
+          lockedMinor: walletUsd.lockedMinor,
+          /** What the next subscription charge will take, after store credit. */
+          dueMinor,
+          sufficient: walletUsd.availableMinor >= dueMinor,
+        }
+      : null,
 
     inbox: { unread, openThreads },
 

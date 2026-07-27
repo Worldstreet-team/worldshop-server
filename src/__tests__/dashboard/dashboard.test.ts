@@ -3,7 +3,13 @@ import prisma from '../../configs/prismaConfig';
 import { createTestUser } from '../helpers';
 
 const chargeWalletUsd = vi.hoisted(() => vi.fn());
-vi.mock('../../services/payment/providers/wallet.provider', () => ({ chargeWalletUsd }));
+const getWalletUsdBalance = vi.hoisted(() =>
+  vi.fn(async () => ({ availableMinor: 5_00, lockedMinor: 0, available: 5, locked: 0 })),
+);
+vi.mock('../../services/payment/providers/wallet.provider', () => ({
+  chargeWalletUsd,
+  getWalletUsdBalance,
+}));
 
 import * as chat from '../../services/chat.service';
 import * as reviews from '../../services/marketplace.review.service';
