@@ -34,6 +34,16 @@ function resolveR2Key(value: string): string | null {
 }
 
 /**
+ * Collapse a client-supplied image value to its stable stored form: a full
+ * R2/presigned URL becomes its bare key, while bare keys and `/relative`
+ * static paths pass through unchanged. Presigned URLs expire and blow past
+ * column-size limits, so only the key should ever be persisted.
+ */
+export function collapseToR2Key(value: string): string {
+  return resolveR2Key(value) ?? value;
+}
+
+/**
  * Sign a single R2 key (or full R2 URL) and return a presigned URL.
  * Accepts bare keys like "categories/abc.jpg" or full https:// R2 URLs.
  * Returns the original string unchanged only for relative paths ("/...").

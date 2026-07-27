@@ -1,4 +1,20 @@
 import { z } from 'zod';
+import { collapseToR2Key } from '../utils/signUrl';
+
+/**
+ * Branding images arrive as whatever the client had on hand: a bare R2 key
+ * from a fresh upload, or a full presigned URL (~400-500 chars) echoed back
+ * from GET /stores/me, which signs stored keys for display. Collapse to the
+ * bare key before length-checking so a signed URL round-trip never fails the
+ * save; the generous pre-collapse cap only guards against garbage input.
+ */
+const brandingImageSchema = z
+  .string()
+  .max(2000)
+  .transform(collapseToR2Key)
+  .refine((v) => v.length <= 300, 'Image reference is too long')
+  .nullable()
+  .optional();
 
 /** Nigerian states are the primary browse filter, so location is required. */
 const stateSchema = z.string().min(2, 'State is required').max(60);
@@ -41,8 +57,8 @@ export const updateStoreSchema = z.object({
   email: z.string().email('Enter a valid email address').nullable().optional(),
   website: z.string().url('Enter a valid URL').max(200).nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
-  logo: z.string().max(300).nullable().optional(),
-  banner: z.string().max(300).nullable().optional(),
+  logo: brandingImageSchema,
+  banner: brandingImageSchema,
   state: stateSchema.optional(),
   city: z.string().max(60).nullable().optional(),
   address: z.string().max(200).nullable().optional(),

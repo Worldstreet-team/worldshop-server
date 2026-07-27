@@ -238,6 +238,33 @@ const THREAD_INCLUDE = {
 } as const;
 
 /**
+ * Buyer display names for a page of threads, one query. Conversation.buyerId
+ * is a bare Clerk user id — there is no Prisma relation to include — so the
+ * profile is joined by hand here.
+ *
+ * First name + last initial, not the full name: the buyer has only sent a
+ * message at this point, and the vendor gets the full identity the moment the
+ * buyer chooses to move to phone/WhatsApp — that escalation is the buyer's
+ * call, not a side effect of saying hello.
+ */
+async function buyerNamesByUserId(buyerIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(buyerIds)];
+  if (unique.length === 0) return new Map();
+
+  const profiles = await prisma.userProfile.findMany({
+    where: { userId: { in: unique } },
+    select: { userId: true, firstName: true, lastName: true },
+  });
+
+  return new Map(
+    profiles.map((p) => {
+      const initial = p.lastName?.trim() ? ` ${p.lastName.trim()[0].toUpperCase()}.` : '';
+      return [p.userId, `${p.firstName}${initial}`.trim() || 'Buyer'];
+    }),
+  );
+}
+
+/**
  * Sign the R2-backed media on a thread (listing photos, store logo) before it
  * leaves the server. Stored values are keys or expired presigned URLs; only a
  * fresh signature renders.
@@ -297,10 +324,21 @@ export async function listConversations(
     }),
   ]);
 
+  // Only the selling side needs the counterpart resolved — a buyer's threads
+  // are already labelled by the store they wrote to.
+  const buyerNames =
+    opts.side === 'selling'
+      ? await buyerNamesByUserId(conversations.map((c) => c.buyerId))
+      : new Map<string, string>();
+
   return {
     conversations: await Promise.all(
       conversations.map(async (c) => ({
         ...(await signThreadMedia(c)),
+        buyer:
+          opts.side === 'selling'
+            ? { id: c.buyerId, name: buyerNames.get(c.buyerId) ?? 'Buyer' }
+            : null,
         lastMessage: c.messages[0] ?? null,
         unread: opts.side === 'selling' ? c.vendorUnread : c.buyerUnread,
         messages: undefined,
@@ -331,8 +369,13 @@ export async function getConversation(
     },
   });
 
+  // Resolved for vendors; harmless for the buyer (it is their own name, and
+  // the UI ignores it on that side).
+  const names = await buyerNamesByUserId([conversation!.buyerId]);
+
   return {
     ...(await signThreadMedia(conversation!)),
+    buyer: { id: conversation!.buyerId, name: names.get(conversation!.buyerId) ?? 'Buyer' },
     // Oldest-first for display; newest-first was only for pagination.
     messages: [...conversation!.messages].reverse(),
     myRole: role,
