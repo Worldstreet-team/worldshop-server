@@ -44,7 +44,7 @@ export async function getDashboard(ownerId: string) {
 
   // The window the engagement numbers describe. While a subscription is
   // running, "this period" is the honest frame — it is literally what the
-  // vendor's last $5 bought. Otherwise fall back to the last 30 days.
+  // vendor's last subscription fee bought. Otherwise fall back to the last 30 days.
   const periodStart =
     subscription?.status === 'ACTIVE' && subscription.currentPeriodStart
       ? subscription.currentPeriodStart

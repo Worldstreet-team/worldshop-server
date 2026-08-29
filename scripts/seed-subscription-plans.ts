@@ -6,7 +6,7 @@
  *   npm run seed:plans -- --apply
  *
  * Amounts are USD minor units, matching the WorldStreet dollar wallet, which
- * already recognises `worldshop` as a spending platform. $5.00 = 500.
+ * already recognises `worldshop` as a spending platform. $20.00 = 2000.
  *
  * The free plan is not seeded by default. It exists as a deliberate lever: if
  * paid-only signup proves too steep at launch, seeding `free` lets stores
@@ -26,7 +26,7 @@ const PLANS = [
   {
     code: 'standard',
     name: 'Standard',
-    amountMinor: 500, // $5.00
+    amountMinor: 2000, // $20.00
     currency: 'USD',
     intervalMonths: 1, // same date each month, not every 30 days
     intervalDays: 30, // fallback only; ignored while intervalMonths is set

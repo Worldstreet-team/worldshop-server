@@ -32,7 +32,7 @@ const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'G
  * Default is `flag` because it changes nothing for users while making the
  * behaviour measurable. Vendors moving buyers straight to WhatsApp costs the
  * platform its response-rate signal, its review anchor and its evidence of
- * what the $5 bought — but that is a policy call, and it should be made on
+ * what the subscription fee bought — but that is a policy call, and it should be made on
  * data rather than guessed at.
  */
 const CONTACT_POLICY = (process.env.CHAT_CONTACT_POLICY || 'flag') as 'flag' | 'redact' | 'block';

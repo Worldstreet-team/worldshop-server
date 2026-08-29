@@ -130,6 +130,29 @@ describe('store subscriptions', () => {
     expect(await storeService.getPublicStoreBySlug(store.slug)).toBeNull();
   });
 
+  it('exposes only buyer-facing fields on the public store shape', async () => {
+    walletSucceeds();
+    const store = await makeStore('publicshape');
+    await subscriptionService.chargeSubscription(store.id);
+    await grantCredit(store.id, 250);
+
+    const pub = await storeService.getPublicStoreBySlug(store.slug);
+    expect(pub).not.toBeNull();
+    // Buyers need these to decide whether to make contact.
+    expect(pub).toMatchObject({ id: store.id, slug: store.slug, state: 'Lagos', status: 'ACTIVE' });
+    // Owner identity, account email, credit balance and admin audit fields
+    // are private. A Store field added later stays private until whitelisted.
+    for (const key of ['ownerId', 'email', 'creditMinor', 'verifiedBy', 'inquiryCount', 'viewCount', 'updatedAt']) {
+      expect(pub, key).not.toHaveProperty(key);
+    }
+
+    const { stores } = await storeService.listPublicStores({ page: 1, limit: 100 });
+    const listed = stores.find((s) => s.id === store.id);
+    expect(listed).toBeDefined();
+    expect(listed).not.toHaveProperty('ownerId');
+    expect(listed).not.toHaveProperty('creditMinor');
+  });
+
   it('goes live once the first charge clears', async () => {
     walletSucceeds();
     const store = await makeStore('activates');

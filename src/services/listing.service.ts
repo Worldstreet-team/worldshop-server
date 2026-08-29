@@ -7,8 +7,8 @@
  *   2. the STORE is paid up       — ACTIVE or GRACE
  *
  * Both must be open. Vendors can build their whole catalogue and mark it
- * published while still unpaid; nothing is public, and the moment the $5
- * clears everything appears at once. That ordering matters — asking someone to
+ * published while still unpaid; nothing is public, and the moment the
+ * subscription fee clears everything appears at once. That ordering matters — asking someone to
  * pay before they can see their own shop populated is a much worse sell than
  * showing them a finished storefront behind a paywall.
  *

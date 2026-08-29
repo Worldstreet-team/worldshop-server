@@ -17,10 +17,30 @@ import { slugify } from '../utils/slugify';
 import { signStoreBranding } from '../utils/signUrl';
 import { createSubscription, isVisibleStatus } from './subscription.service';
 import type { CreateStoreInput, UpdateStoreInput } from '../validators/store.validator';
-import { Prisma, type Store } from '../../generated/prisma';
+import { Prisma } from '../../generated/prisma';
 
 /** Statuses a buyer is allowed to see — ACTIVE plus the grace window. */
 const VISIBLE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
+
+/**
+ * What a buyer may see of a store. A whitelist, not a blacklist: the Store row
+ * also carries the owner's auth id, the vendor's account email, the store
+ * credit balance and the admin who verified it — none of which belongs on a
+ * public endpoint. Anything added to the model stays private until it is
+ * deliberately listed here.
+ */
+const PUBLIC_STORE_SELECT = {
+  id: true, name: true, slug: true, description: true, logo: true, banner: true,
+  // Contact channels the vendor chose to publish
+  phone: true, whatsapp: true, website: true,
+  state: true, city: true, address: true, openingHours: true,
+  status: true, verificationTier: true, verifiedAt: true,
+  avgRating: true, reviewCount: true, listingCount: true,
+  responseRate: true, avgResponseMins: true,
+  createdAt: true,
+} satisfies Prisma.StoreSelect;
+
+export type PublicStore = Prisma.StoreGetPayload<{ select: typeof PUBLIC_STORE_SELECT }>;
 
 const DEFAULT_RESERVED_SLUGS = [
   'admin', 'vendor', 'vendors', 'account', 'auth', 'store', 'stores', 'api',
@@ -144,8 +164,8 @@ export async function updateStore(ownerId: string, input: UpdateStoreInput) {
  * unpaid, lapsed, suspended or banned store is indistinguishable from one that
  * does not exist.
  */
-export async function getPublicStoreBySlug(slug: string): Promise<Store | null> {
-  const store = await prisma.store.findUnique({ where: { slug } });
+export async function getPublicStoreBySlug(slug: string): Promise<PublicStore | null> {
+  const store = await prisma.store.findUnique({ where: { slug }, select: PUBLIC_STORE_SELECT });
   if (!store || !isVisibleStatus(store.status)) return null;
   return signStoreBranding(store);
 }
@@ -160,6 +180,7 @@ export async function listPublicStores(opts: { page: number; limit: number; stat
   const [stores, total] = await Promise.all([
     prisma.store.findMany({
       where,
+      select: PUBLIC_STORE_SELECT,
       orderBy: [{ listingCount: 'desc' }, { createdAt: 'desc' }],
       skip: (opts.page - 1) * opts.limit,
       take: opts.limit,
