@@ -52,9 +52,9 @@ app.use(express.json());
 app.get('/', async (req: Request, res: Response, next: NextFunction) => {
   res.status(200).send({
     status: 'success',
-    name: 'WorldStreet Shop API',
+    name: 'WorldStore API',
     version: 'v1',
-    description: 'Backend API for the WorldStreet marketplace.',
+    description: 'Backend API for the WorldStore marketplace.',
     health: '/health',
     baseUrl: '/api/v1',
     endpoints: {

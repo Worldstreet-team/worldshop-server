@@ -52,9 +52,9 @@ export const healthCheck = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      message: 'WorldStreet Shop API is healthy',
+      message: 'WorldStore API is healthy',
       api: {
-        name: 'WorldStreet Shop API',
+        name: 'WorldStore API',
         version: 'v1',
       },
       timestamp: new Date().toISOString(),
