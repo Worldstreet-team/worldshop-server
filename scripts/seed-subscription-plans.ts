@@ -26,7 +26,7 @@ const PLANS = [
   {
     code: 'standard',
     name: 'Standard',
-    amountMinor: 2000, // $20.00
+    amountMinor: 5000, // $50.00
     currency: 'USD',
     intervalMonths: 1, // same date each month, not every 30 days
     intervalDays: 30, // fallback only; ignored while intervalMonths is set
@@ -40,6 +40,26 @@ const PLANS = [
       'Monthly inquiry analytics',
     ],
     sortOrder: 10,
+  },
+  {
+    code: 'mall-standard',
+    name: 'Mall',
+    amountMinor: 30000, // $300.00
+    currency: 'USD',
+    intervalMonths: 1,
+    intervalDays: 30,
+    graceDays: 7,
+    listingLimit: null as number | null,
+    kind: 'MALL',
+    substoreLimit: 20,
+    perks: [
+      'Your own mall page in the marketplace',
+      'Up to 20 substores, all covered by one subscription',
+      'Featured products showcase (up to 12)',
+      'Unlimited listings per substore',
+      'Buyer messaging and reviews for every substore',
+    ],
+    sortOrder: 100,
   },
 ];
 
@@ -81,6 +101,8 @@ async function main() {
         intervalDays: plan.intervalDays,
         graceDays: plan.graceDays,
         listingLimit: plan.listingLimit,
+        kind: 'kind' in plan ? (plan.kind as string) : 'STORE',
+        substoreLimit: 'substoreLimit' in plan ? (plan.substoreLimit as number | null) : null,
         perks: plan.perks,
         sortOrder: plan.sortOrder,
         isActive: true,
