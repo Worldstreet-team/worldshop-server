@@ -20,6 +20,7 @@ import {
   PUBLIC_STORE_SELECT,
 } from './marketplace.store.service';
 import { getPlanByCode, isVisibleStatus } from './subscription.service';
+import { MALL_PAYWALL_ENABLED } from '../configs/featureFlags';
 import { createMallSubscription, DEFAULT_MALL_PLAN_CODE } from './mall.subscription.service';
 import type {
   CreateMallInput,
@@ -29,7 +30,19 @@ import type {
 } from '../validators/mall.validator';
 import { Prisma } from '../../generated/prisma';
 
-const VISIBLE_STATUSES: Prisma.EnumMallStatusFilter = { in: ['ACTIVE', 'GRACE'] };
+// With the paywall off (see featureFlags) a DRAFT mall — created but never
+// charged — is public too, so the feature can be tested without paying. Every
+// other status still hides: EXPIRED, SUSPENDED and BANNED are not "unpaid",
+// they are lapsed or moderated, and those must keep hiding regardless.
+const VISIBLE_STATUSES: Prisma.EnumMallStatusFilter = MALL_PAYWALL_ENABLED
+  ? { in: ['ACTIVE', 'GRACE'] }
+  : { in: ['ACTIVE', 'GRACE', 'DRAFT'] };
+
+/** Mall-side visibility. Defers to the subscription rule when the paywall is
+ *  on, and additionally lets DRAFT through when it is off. */
+function isMallVisible(status: string): boolean {
+  return isVisibleStatus(status) || (!MALL_PAYWALL_ENABLED && status === 'DRAFT');
+}
 const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
 
 export const MAX_FEATURED_LISTINGS = 12;
@@ -122,7 +135,7 @@ export async function getMyMall(ownerId: string) {
 
   return {
     ...(await signStoreBranding(mall)),
-    isPubliclyVisible: isVisibleStatus(mall.status),
+    isPubliclyVisible: isMallVisible(mall.status),
   };
 }
 
@@ -200,7 +213,7 @@ export async function createSubstore(ownerId: string, input: CreateSubstoreInput
         // ("hidden pending the mall's billing"), NOT DRAFT: the payment
         // cascade flips GRACE/EXPIRED to ACTIVE but deliberately never DRAFT,
         // which is reserved for substores the owner archived on purpose.
-        status: isVisibleStatus(mall.status) ? 'ACTIVE' : 'EXPIRED',
+        status: isMallVisible(mall.status) ? 'ACTIVE' : 'EXPIRED',
       },
     }),
     prisma.mall.update({
@@ -391,7 +404,7 @@ export async function restoreSubstore(ownerId: string, substoreId: string) {
   const [restored] = await prisma.$transaction([
     prisma.store.update({
       where: { id: substore.id },
-      data: { status: isVisibleStatus(mall.status) ? 'ACTIVE' : 'EXPIRED' },
+      data: { status: isMallVisible(mall.status) ? 'ACTIVE' : 'EXPIRED' },
     }),
     prisma.mall.update({
       where: { id: mall.id },
@@ -444,7 +457,7 @@ export async function setFeaturedListings(ownerId: string, listingIds: string[])
  */
 export async function getPublicMallBySlug(slug: string) {
   const mall = await prisma.mall.findUnique({ where: { slug }, select: PUBLIC_MALL_SELECT });
-  if (!mall || !isVisibleStatus(mall.status)) return null;
+  if (!mall || !isMallVisible(mall.status)) return null;
 
   const [substores, featured] = await Promise.all([
     prisma.store.findMany({
