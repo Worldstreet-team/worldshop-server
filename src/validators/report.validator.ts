@@ -17,7 +17,7 @@ export const REPORT_REASONS = [
 ] as const;
 
 export const createReportSchema = z.object({
-  targetType: z.enum(['LISTING', 'STORE', 'REVIEW']),
+  targetType: z.enum(['LISTING', 'STORE', 'MALL', 'REVIEW']),
   targetId: z.string().length(24, 'A valid targetId is required'),
   reason: z.enum(REPORT_REASONS),
   details: z.string().trim().max(1000).optional(),
@@ -25,7 +25,14 @@ export const createReportSchema = z.object({
 
 export type CreateReportInput = z.infer<typeof createReportSchema>;
 
-export const REPORT_ACTIONS = ['REMOVE_LISTING', 'SUSPEND_STORE', 'BAN_STORE', 'REMOVE_REVIEW'] as const;
+export const REPORT_ACTIONS = [
+  'REMOVE_LISTING',
+  'SUSPEND_STORE',
+  'BAN_STORE',
+  'SUSPEND_MALL',
+  'BAN_MALL',
+  'REMOVE_REVIEW',
+] as const;
 
 export type ReportAction = (typeof REPORT_ACTIONS)[number];
 
@@ -46,12 +53,12 @@ export const reportQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(['OPEN', 'REVIEWING', 'ACTIONED', 'DISMISSED']).optional(),
-  targetType: z.enum(['LISTING', 'STORE', 'REVIEW']).optional(),
+  targetType: z.enum(['LISTING', 'STORE', 'MALL', 'REVIEW']).optional(),
   reason: z.enum(REPORT_REASONS).optional(),
 });
 
 export type ReportQueryInput = z.infer<typeof reportQuerySchema>;
 
 export const queueQuerySchema = z.object({
-  targetType: z.enum(['LISTING', 'STORE', 'REVIEW']).optional(),
+  targetType: z.enum(['LISTING', 'STORE', 'MALL', 'REVIEW']).optional(),
 });

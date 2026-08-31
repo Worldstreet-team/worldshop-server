@@ -29,7 +29,7 @@ const VISIBLE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE']
  * public endpoint. Anything added to the model stays private until it is
  * deliberately listed here.
  */
-const PUBLIC_STORE_SELECT = {
+export const PUBLIC_STORE_SELECT = {
   id: true, name: true, slug: true, description: true, logo: true, banner: true,
   // Contact channels the vendor chose to publish
   phone: true, whatsapp: true, website: true,
@@ -37,6 +37,10 @@ const PUBLIC_STORE_SELECT = {
   status: true, verificationTier: true, verifiedAt: true,
   avgRating: true, reviewCount: true, listingCount: true,
   responseRate: true, avgResponseMins: true,
+  // Substores link back to their mall ("Part of <Mall>" badge). The mall's
+  // status rides along so callers can suppress the badge for a hidden mall.
+  kind: true, mallId: true,
+  mall: { select: { name: true, slug: true, status: true } },
   createdAt: true,
 } satisfies Prisma.StoreSelect;
 
@@ -45,6 +49,7 @@ export type PublicStore = Prisma.StoreGetPayload<{ select: typeof PUBLIC_STORE_S
 const DEFAULT_RESERVED_SLUGS = [
   'admin', 'vendor', 'vendors', 'account', 'auth', 'store', 'stores', 'api',
   'checkout', 'cart', 'search', 'category', 'categories', 'me', 'plans', 'new',
+  'mall', 'malls',
 ];
 
 function getReservedSlugs(): string[] {
@@ -58,7 +63,7 @@ function getReservedSlugs(): string[] {
  * The unique index is still the real guard; this just avoids handing the user
  * a 409 for something we can resolve ourselves.
  */
-async function buildUniqueSlug(name: string): Promise<string> {
+export async function buildUniqueSlug(name: string): Promise<string> {
   const base = slugify(name);
   if (!base) {
     throw createError(400, 'Store name must contain at least one letter or number');
@@ -76,9 +81,9 @@ async function buildUniqueSlug(name: string): Promise<string> {
 }
 
 /**
- * Creates the store and its (unpaid) subscription together. One store per
- * user: `ownerId` is unique, so a second attempt is rejected rather than
- * silently creating an orphan.
+ * Creates the store and its (unpaid) subscription together. One PERSONAL
+ * store per user — enforced here rather than by an index, because a mall
+ * owner legitimately holds many MALL_SUBSTORE rows under the same ownerId.
  */
 export async function createStore(ownerId: string, input: CreateStoreInput) {
   const profile = await prisma.userProfile.findUnique({
@@ -87,7 +92,10 @@ export async function createStore(ownerId: string, input: CreateStoreInput) {
   });
   if (!profile) throw createError(404, 'Complete your profile before creating a store');
 
-  const existing = await prisma.store.findUnique({ where: { ownerId }, select: { id: true } });
+  const existing = await prisma.store.findFirst({
+    where: { ownerId, kind: 'PERSONAL' },
+    select: { id: true },
+  });
   if (existing) throw createError(409, 'You already have a store');
 
   const slug = await buildUniqueSlug(input.name);
@@ -95,6 +103,7 @@ export async function createStore(ownerId: string, input: CreateStoreInput) {
   const store = await prisma.store.create({
     data: {
       ownerId,
+      kind: 'PERSONAL',
       name: input.name,
       slug,
       description: input.description,
@@ -109,14 +118,28 @@ export async function createStore(ownerId: string, input: CreateStoreInput) {
     },
   });
 
+  // The unique index that used to make a concurrent duplicate fail at the DB
+  // is gone (mall substores share ownerId), so re-check AFTER the insert:
+  // if two requests raced past the findFirst above, the row with the higher
+  // id deterministically removes itself. The winner is unaffected.
+  const personalStores = await prisma.store.findMany({
+    where: { ownerId, kind: 'PERSONAL' },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  });
+  if (personalStores[0]?.id !== store.id) {
+    await prisma.store.delete({ where: { id: store.id } });
+    throw createError(409, 'You already have a store');
+  }
+
   await createSubscription(store.id, input.planCode);
 
   return getMyStore(ownerId);
 }
 
 export async function getMyStore(ownerId: string) {
-  const store = await prisma.store.findUnique({
-    where: { ownerId },
+  const store = await prisma.store.findFirst({
+    where: { ownerId, kind: 'PERSONAL' },
     include: {
       subscription: { include: { plan: true } },
     },
@@ -130,7 +153,7 @@ export async function getMyStore(ownerId: string) {
 }
 
 export async function updateStore(ownerId: string, input: UpdateStoreInput) {
-  const store = await prisma.store.findUnique({ where: { ownerId } });
+  const store = await prisma.store.findFirst({ where: { ownerId, kind: 'PERSONAL' } });
   if (!store) throw createError(404, 'You do not have a store yet');
   if (store.status === 'BANNED') throw createError(403, 'This store has been banned');
 

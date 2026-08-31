@@ -28,7 +28,8 @@ async function main() {
   }
   console.log(`User: ${profile.firstName} ${profile.lastName} <${profile.email}> userId=${profile.userId} role=${profile.role}`);
 
-  const store = await prisma.store.findUnique({ where: { ownerId: profile.userId } });
+  // The user's PERSONAL store only — mall substores are deleted via mall tooling.
+  const store = await prisma.store.findFirst({ where: { ownerId: profile.userId, kind: 'PERSONAL' } });
   if (!store) {
     console.log('No store found for this user — nothing to delete.');
     return;

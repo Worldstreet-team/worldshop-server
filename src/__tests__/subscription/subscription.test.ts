@@ -355,4 +355,49 @@ describe('store subscriptions', () => {
     // Paid time is not forfeited by cancelling.
     expect(await storeService.getPublicStoreBySlug(store.slug)).not.toBeNull();
   });
+
+  it('never charges or resurrects an admin-suspended store', async () => {
+    walletSucceeds();
+    const store = await makeStore('suspended');
+    await subscriptionService.chargeSubscription(store.id);
+
+    // Admin takes the store down; a due renewal must not undo that.
+    await prisma.store.update({ where: { id: store.id }, data: { status: 'SUSPENDED' } });
+    await expect(
+      subscriptionService.chargeSubscription(store.id, { allowPrepay: true }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('SUSPENDED');
+    expect(chargeWalletUsd).toHaveBeenCalledTimes(1);
+  });
+
+  it('expires a cancelled store at the end of the paid period, and paying again resubscribes', async () => {
+    walletSucceeds();
+    const store = await makeStore('cancelexpires');
+    await subscriptionService.chargeSubscription(store.id);
+    await subscriptionService.cancelSubscription(store.id);
+
+    // Still inside the paid period: the sweep leaves the store visible.
+    await subscriptionService.runRenewalSweep();
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('ACTIVE');
+
+    // Period over: cancellation now takes effect.
+    await prisma.subscription.update({
+      where: { storeId: store.id },
+      data: { currentPeriodEnd: new Date(Date.now() - 1000) },
+    });
+    await subscriptionService.runRenewalSweep();
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('EXPIRED');
+    expect(await storeService.getPublicStoreBySlug(store.slug)).toBeNull();
+    // The subscription stays CANCELLED so a later payment reads as a resubscribe.
+    expect((await prisma.subscription.findUnique({ where: { storeId: store.id } }))?.status).toBe('CANCELLED');
+
+    // Charging a CANCELLED subscription is the resubscribe path.
+    const outcome = await subscriptionService.chargeSubscription(store.id);
+    expect(outcome.charged).toBe(true);
+    const after = await prisma.subscription.findUnique({ where: { storeId: store.id } });
+    expect(after?.status).toBe('ACTIVE');
+    expect(after?.autoRenew).toBe(true);
+    expect(after?.cancelledAt).toBeNull();
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('ACTIVE');
+  });
 });

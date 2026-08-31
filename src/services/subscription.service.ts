@@ -77,16 +77,21 @@ function buildChargeRef(storeId: string, periodStart: Date): string {
   return `sub_${storeId}_${periodStart.toISOString()}`;
 }
 
-export async function getActivePlans(): Promise<SubscriptionPlan[]> {
+export async function getActivePlans(kind: 'STORE' | 'MALL' = 'STORE'): Promise<SubscriptionPlan[]> {
   return prisma.subscriptionPlan.findMany({
-    where: { isActive: true },
+    where: { isActive: true, kind },
     orderBy: [{ sortOrder: 'asc' }, { amountMinor: 'asc' }],
   });
 }
 
-export async function getPlanByCode(code: string): Promise<SubscriptionPlan> {
+export async function getPlanByCode(
+  code: string,
+  kind: 'STORE' | 'MALL' = 'STORE',
+): Promise<SubscriptionPlan> {
   const plan = await prisma.subscriptionPlan.findUnique({ where: { code } });
-  if (!plan || !plan.isActive) {
+  // A plan of the wrong kind is as unavailable as one that does not exist — a
+  // store cannot subscribe on a mall plan or vice versa.
+  if (!plan || !plan.isActive || plan.kind !== kind) {
     throw createError(404, `Subscription plan "${code}" is not available`);
   }
   return plan;
@@ -139,9 +144,17 @@ export async function chargeSubscription(
   });
 
   if (!subscription) throw createError(404, 'This store has no subscription');
-  if (subscription.status === 'CANCELLED') {
-    throw createError(409, 'This subscription was cancelled — resubscribe to reactivate');
+
+  // Never take money for a store an admin has taken down — and never let a
+  // payment overwrite that decision. The paid transaction below re-checks
+  // with a status guard in case the admin acts between here and there.
+  if (subscription.store.status === 'SUSPENDED' || subscription.store.status === 'BANNED') {
+    throw createError(403, 'This store has been suspended. Contact support.');
   }
+
+  // Charging a CANCELLED subscription is the resubscribe path: the vendor is
+  // paying again, so auto-renewal turns back on with the new period.
+  const reactivating = subscription.status === 'CANCELLED';
 
   const { plan, store } = subscription;
   const now = new Date();
@@ -277,9 +290,17 @@ export async function chargeSubscription(
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
         graceEndsAt: null,
+        ...(reactivating ? { autoRenew: true, cancelledAt: null } : {}),
       },
     }),
-    prisma.store.update({ where: { id: storeId }, data: { status: 'ACTIVE' } }),
+    // Positive status list, not an unconditional update: a store an admin
+    // suspended or banned mid-flight must stay that way even though the
+    // period was paid for. (A positive `in` also sidesteps the Mongo
+    // unset-field trap that `notIn` would reintroduce.)
+    prisma.store.updateMany({
+      where: { id: storeId, status: { in: ['DRAFT', 'ACTIVE', 'GRACE', 'EXPIRED'] } },
+      data: { status: 'ACTIVE' },
+    }),
   ]);
 
   logger.info('[Subscription] Charged', {
@@ -329,21 +350,43 @@ export async function runRenewalSweep(): Promise<SweepReport> {
   const now = new Date();
   const report: SweepReport = { due: 0, renewed: 0, failed: 0, lapsed: 0 };
 
-  // 1. Grace expired → hide the store.
+  // 1. Grace expired, or a cancelled subscription's paid period ran out →
+  // hide the store. Cancellation keeps the store visible only until the end
+  // of what was paid for — without the CANCELLED clause here, cancelling
+  // after one payment would mean visibility forever.
   const expired = await prisma.subscription.findMany({
-    where: { status: 'GRACE', graceEndsAt: { lte: now } },
-    select: { id: true, storeId: true },
+    where: {
+      OR: [
+        { status: 'GRACE', graceEndsAt: { lte: now } },
+        // The store-status filter keeps an already-expired cancellation from
+        // re-matching (and re-counting) on every hourly sweep.
+        {
+          status: 'CANCELLED',
+          currentPeriodEnd: { lte: now },
+          store: { is: { status: { in: ['ACTIVE', 'GRACE'] } } },
+        },
+      ],
+    },
+    select: { id: true, storeId: true, status: true },
   });
 
   for (const sub of expired) {
     await prisma.$transaction([
-      prisma.subscription.update({ where: { id: sub.id }, data: { status: 'LAPSED' } }),
-      prisma.store.update({ where: { id: sub.storeId }, data: { status: 'EXPIRED' } }),
+      // A CANCELLED subscription stays CANCELLED (so the charge path still
+      // treats a later payment as a resubscribe); only GRACE becomes LAPSED.
+      ...(sub.status === 'GRACE'
+        ? [prisma.subscription.update({ where: { id: sub.id }, data: { status: 'LAPSED' } })]
+        : []),
+      // Guarded like the paid path: never overwrite SUSPENDED/BANNED.
+      prisma.store.updateMany({
+        where: { id: sub.storeId, status: { in: ['DRAFT', 'ACTIVE', 'GRACE'] } },
+        data: { status: 'EXPIRED' },
+      }),
     ]);
     report.lapsed += 1;
   }
   if (expired.length) {
-    logger.info('[Subscription] Stores expired after grace', { count: expired.length });
+    logger.info('[Subscription] Stores expired after grace/cancellation', { count: expired.length });
   }
 
   // 2 + 3. Anything due for a charge.

@@ -19,7 +19,7 @@ import type { CreateReportInput, ReportAction } from '../validators/report.valid
 
 export const OPEN_STATUSES = ['OPEN', 'REVIEWING'] as const;
 
-type TargetType = 'LISTING' | 'STORE' | 'REVIEW';
+type TargetType = 'LISTING' | 'STORE' | 'MALL' | 'REVIEW';
 
 /** Confirms the target exists and returns a label for the admin queue. */
 async function resolveTarget(targetType: TargetType, targetId: string) {
@@ -39,6 +39,16 @@ async function resolveTarget(targetType: TargetType, targetId: string) {
     });
     if (!store) throw createError(404, 'Store not found');
     return { label: store.name, storeId: store.id, status: store.status };
+  }
+
+  if (targetType === 'MALL') {
+    const mall = await prisma.mall.findUnique({
+      where: { id: targetId },
+      select: { id: true, name: true, slug: true, status: true, ownerId: true },
+    });
+    if (!mall) throw createError(404, 'Mall not found');
+    // A mall has no storeId; ownerId carries the self-report guard instead.
+    return { label: mall.name, storeId: null, ownerId: mall.ownerId, status: mall.status };
   }
 
   const review = await prisma.review.findUnique({
@@ -67,7 +77,11 @@ export async function createReport(reporterId: string, input: CreateReportInput)
    * from flagging a fake review on their own store — the person most likely to
    * notice one, and the reason FAKE_REVIEW exists.
    */
-  if (target.storeId && input.targetType !== 'REVIEW') {
+  if (input.targetType === 'MALL') {
+    if ('ownerId' in target && target.ownerId === reporterId) {
+      throw createError(400, 'You cannot report your own mall');
+    }
+  } else if (target.storeId && input.targetType !== 'REVIEW') {
     const store = await prisma.store.findUnique({
       where: { id: target.storeId },
       select: { ownerId: true },
@@ -315,6 +329,8 @@ export async function actionReport(
     REMOVE_LISTING: 'LISTING',
     SUSPEND_STORE: 'STORE',
     BAN_STORE: 'STORE',
+    SUSPEND_MALL: 'MALL',
+    BAN_MALL: 'MALL',
     REMOVE_REVIEW: 'REVIEW',
   };
   if (expected[action] !== report.targetType) {
@@ -353,6 +369,42 @@ export async function actionReport(
     await prisma.store.update({ where: { id: store.id }, data: { listingCount: 0 } });
 
     affected = { type: 'STORE', id: store.id, status: store.status };
+  } else if (action === 'SUSPEND_MALL' || action === 'BAN_MALL') {
+    const mall = await prisma.mall.update({
+      where: { id: report.targetId },
+      data: { status: action === 'BAN_MALL' ? 'BANNED' : 'SUSPENDED' },
+      select: { id: true, status: true },
+    });
+
+    /**
+     * The mall status hides the mall page, but its substores' listings are
+     * still reachable by direct link — hide them the way a store suspension
+     * does. Substore Store.status is deliberately left alone: it is the
+     * billing cascade's ledger (and an admin's, for individually suspended
+     * substores), and flipping it here would make un-suspending the mall a
+     * guessing game about what each substore was before.
+     */
+    const substores = await prisma.store.findMany({
+      where: { mallId: mall.id, kind: 'MALL_SUBSTORE' },
+      select: { id: true },
+    });
+    const substoreIds = substores.map((s) => s.id);
+
+    let hiddenCount = 0;
+    if (substoreIds.length) {
+      const hidden = await prisma.product.updateMany({
+        where: { storeId: { in: substoreIds }, status: 'PUBLISHED' },
+        data: { status: 'HIDDEN' },
+      });
+      hiddenCount = hidden.count;
+      await prisma.store.updateMany({
+        where: { id: { in: substoreIds } },
+        data: { listingCount: 0 },
+      });
+    }
+    listingsHidden = hiddenCount;
+
+    affected = { type: 'MALL', id: mall.id, status: mall.status };
   } else {
     const review = await prisma.review.update({
       where: { id: report.targetId },

@@ -48,6 +48,14 @@ async function cleanup() {
     await prisma.product.deleteMany({ where: { storeId: { in: storeIds } } });
     await prisma.store.deleteMany({ where: { id: { in: storeIds } } });
   }
+  const malls = await prisma.mall.findMany({
+    where: { ownerId: { startsWith: PREFIX } },
+    select: { id: true },
+  });
+  if (malls.length) {
+    await prisma.report.deleteMany({ where: { targetId: { in: malls.map((m) => m.id) } } });
+    await prisma.mall.deleteMany({ where: { id: { in: malls.map((m) => m.id) } } });
+  }
   await prisma.report.deleteMany({ where: { reporterId: { startsWith: PREFIX } } });
   await prisma.userProfile.deleteMany({ where: { userId: { startsWith: PREFIX } } });
 }
@@ -73,6 +81,33 @@ async function makeListing(storeId: string) {
       publishedAt: new Date(),
     },
   });
+}
+
+/** An ACTIVE mall with `substoreCount` ACTIVE substores, created directly —
+ *  billing is out of scope here. */
+async function makeMall(name: string, substoreCount = 2) {
+  const ownerId = `${PREFIX}mallowner-${name}`;
+  await createTestUser({ userId: ownerId });
+  const mall = await prisma.mall.create({
+    data: { ownerId, name: `${name} Mall`, slug: `${SLUG}-mall-${name}`, state: 'Lagos', status: 'ACTIVE' },
+  });
+  const substores = [];
+  for (let i = 0; i < substoreCount; i += 1) {
+    substores.push(
+      await prisma.store.create({
+        data: {
+          ownerId,
+          kind: 'MALL_SUBSTORE',
+          mallId: mall.id,
+          name: `${name} Substore ${i}`,
+          slug: `${SLUG}-mall-${name}-sub-${i}`,
+          state: 'Lagos',
+          status: 'ACTIVE',
+        },
+      }),
+    );
+  }
+  return { mall, substores, ownerId };
 }
 
 async function makeUser(name: string) {
@@ -283,6 +318,72 @@ describe('reports and moderation', () => {
 
     await reports.actionReport(report.id, ADMIN, 'BAN_STORE');
     expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('BANNED');
+  });
+
+  it('blocks reporting your own mall', async () => {
+    const { mall, ownerId } = await makeMall('selfmall', 0);
+    await expect(
+      reports.createReport(ownerId, { targetType: 'MALL', targetId: mall.id, reason: 'OTHER' }),
+    ).rejects.toThrow(/your own mall/i);
+  });
+
+  it('suspends a mall and hides listings across all its substores', async () => {
+    const { mall, substores } = await makeMall('suspendmall');
+    await makeListing(substores[0].id);
+    await makeListing(substores[0].id);
+    await makeListing(substores[1].id);
+    const reporter = await makeUser('suspendmall');
+
+    const report = await reports.createReport(reporter, {
+      targetType: 'MALL',
+      targetId: mall.id,
+      reason: 'SCAM',
+    });
+
+    const result = await reports.actionReport(report.id, ADMIN, 'SUSPEND_MALL', 'Scam mall');
+
+    expect(result.affected).toMatchObject({ type: 'MALL', id: mall.id, status: 'SUSPENDED' });
+    expect(result.listingsHidden).toBe(3);
+    expect((await prisma.mall.findUnique({ where: { id: mall.id } }))?.status).toBe('SUSPENDED');
+
+    const stillPublished = await prisma.product.count({
+      where: { storeId: { in: substores.map((s) => s.id) }, status: 'PUBLISHED' },
+    });
+    expect(stillPublished).toBe(0);
+
+    // Substore status is the billing cascade's ledger — an admin mall
+    // suspension must not overwrite it.
+    for (const s of substores) {
+      expect((await prisma.store.findUnique({ where: { id: s.id } }))?.status).toBe('ACTIVE');
+    }
+  });
+
+  it('bans a mall when asked', async () => {
+    const { mall } = await makeMall('banmall', 0);
+    const reporter = await makeUser('banmall');
+    const report = await reports.createReport(reporter, {
+      targetType: 'MALL',
+      targetId: mall.id,
+      reason: 'PROHIBITED',
+    });
+
+    await reports.actionReport(report.id, ADMIN, 'BAN_MALL');
+    expect((await prisma.mall.findUnique({ where: { id: mall.id } }))?.status).toBe('BANNED');
+  });
+
+  it('surfaces reported malls in the queue with their name', async () => {
+    const { mall } = await makeMall('queuemall', 0);
+    const reporter = await makeUser('queuemall');
+    await reports.createReport(reporter, { targetType: 'MALL', targetId: mall.id, reason: 'MISLEADING' });
+
+    const queue = await reports.listQueue({ targetType: 'MALL' });
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({
+      targetType: 'MALL',
+      targetId: mall.id,
+      label: mall.name,
+      targetStatus: 'ACTIVE',
+    });
   });
 
   it('refuses an action that does not match the target type', async () => {

@@ -17,11 +17,21 @@ export interface StoreContext {
   city: string | null;
 }
 
+/** Set by requireMall — the caller's own mall. */
+export interface MallContext {
+  id: string;
+  slug: string;
+  status: 'DRAFT' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'SUSPENDED' | 'BANNED';
+  state: string;
+  city: string | null;
+}
+
 declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
       store?: StoreContext;
+      mall?: MallContext;
     }
   }
 }

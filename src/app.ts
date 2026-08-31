@@ -8,6 +8,7 @@ import profileRoutes from './routes/profile.routes';
 import categoryRoutes from './routes/category.routes';
 import adminRoutes from './routes/admin.routes';
 import marketplaceStoreRoutes from './routes/marketplace.store.routes';
+import mallRoutes from './routes/mall.routes';
 import listingPublicRoutes from './routes/listing.public.routes';
 import chatRoutes from './routes/chat.routes';
 import marketplaceReviewRoutes from './routes/marketplace.review.routes';
@@ -60,6 +61,7 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
     endpoints: {
       listings: '/api/v1/listings',
       stores: '/api/v1/stores',
+      malls: '/api/v1/malls',
       categories: '/api/v1/categories',
       conversations: '/api/v1/conversations',
       reviews: '/api/v1/reviews',
@@ -75,6 +77,7 @@ app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/stores', marketplaceStoreRoutes);
+app.use('/api/v1/malls', mallRoutes);
 app.use('/api/v1/listings', listingPublicRoutes);
 app.use('/api/v1/conversations', chatRoutes);
 app.use('/api/v1/reviews', marketplaceReviewRoutes);

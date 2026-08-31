@@ -352,6 +352,15 @@ model PlatformConfig {
 // subscription charge clears. Replaces the vendor fields on UserProfile.
 // ============================================
 
+// A store is either a user's own standalone shop or a substore the owner of a
+// Mall created inside it. Substores have no Subscription of their own — the
+// mall's subscription drives their visibility (status cascades on billing
+// transitions, the same way suspension cascades from reports).
+enum StoreKind {
+  PERSONAL
+  MALL_SUBSTORE
+}
+
 enum StoreStatus {
   DRAFT      // created, never paid — visible only to its owner
   ACTIVE     // subscription current
@@ -370,7 +379,13 @@ enum VerificationTier {
 
 model Store {
   id               String           @id @default(auto()) @map("_id") @db.ObjectId
-  ownerId          String           @unique // UserProfile.userId
+  // UserProfile.userId. Not unique: a mall owner has one Store per substore.
+  // "One PERSONAL store per user" is enforced in code (createStore), since
+  // Mongo/Prisma cannot express a partial unique index over kind=PERSONAL.
+  ownerId          String
+  kind             StoreKind        @default(PERSONAL)
+  mallId           String?          @db.ObjectId
+  mall             Mall?            @relation(fields: [mallId], references: [id])
   name             String
   slug             String           @unique // required, so a plain unique index works
   description      String?
@@ -419,8 +434,124 @@ model Store {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  @@index([ownerId])
+  @@index([mallId])
   @@index([status])
   @@index([state, status])
+}
+
+// ============================================
+// MALLS
+// A mall is a premium umbrella any user can pay for ($100/month by default).
+// The owner creates substores inside it; the mall subscription covers them
+// all, so substores carry no Subscription row. Public page shows branding,
+// the substore grid and an owner-curated rail of featured listings.
+// ============================================
+
+enum MallStatus {
+  DRAFT      // created, never paid — visible only to its owner
+  ACTIVE
+  GRACE
+  EXPIRED
+  SUSPENDED  // admin action, reversible
+  BANNED
+}
+
+model Mall {
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId            String            @unique // UserProfile.userId — one mall per user
+  name               String
+  slug               String            @unique
+  description        String?
+  logo               String?
+  banner             String?
+
+  phone              String?
+  whatsapp           String?
+  email              String?
+  website            String?
+
+  state              String
+  city               String?
+  address            String?
+
+  status             MallStatus        @default(DRAFT)
+
+  // Owner-curated showcase, capped at 12. Each id is validated on write to be
+  // a PUBLISHED listing belonging to one of this mall's substores, and
+  // re-filtered on read so a since-hidden listing silently drops out.
+  featuredListingIds String[]          @db.ObjectId
+
+  // Denormalised for /malls directory cards
+  substoreCount      Int               @default(0)
+  viewCount          Int               @default(0)
+
+  substores          Store[]
+  subscription       MallSubscription?
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([status])
+  @@index([state, status])
+}
+
+// Parallel to Subscription rather than folded into it: on MongoDB a unique
+// index over an optional storeId is not sparse through Prisma, so two mall
+// subscriptions with storeId unset would collide. Same state machine.
+model MallSubscription {
+  id                 String                   @id @default(auto()) @map("_id") @db.ObjectId
+  mallId             String                   @unique @db.ObjectId
+  mall               Mall                     @relation(fields: [mallId], references: [id], onDelete: Cascade)
+  planId             String                   @db.ObjectId
+  plan               SubscriptionPlan         @relation("MallPlanSubs", fields: [planId], references: [id])
+
+  status             SubscriptionStatus       @default(PENDING_PAYMENT)
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  graceEndsAt        DateTime?
+  autoRenew          Boolean                  @default(true)
+  cancelledAt        DateTime?
+
+  charges            MallSubscriptionCharge[]
+
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  // Drives the renewal sweep
+  @@index([status, currentPeriodEnd])
+  @@index([planId])
+}
+
+// One row per mall billing attempt. Wallet-only at launch (no credit ledger
+// for malls); chargeRef mallsub_<mallId>_<periodStart ISO> keeps refs disjoint
+// from store charges so a replay can never collide across the two systems.
+model MallSubscriptionCharge {
+  id             String           @id @default(auto()) @map("_id") @db.ObjectId
+  subscriptionId String           @db.ObjectId
+  subscription   MallSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  mallId         String           @db.ObjectId
+
+  amountMinor    Int
+  currency       String           @default("USD")
+  walletMinor    Int              @default(0)
+  periodStart    DateTime
+  periodEnd      DateTime
+
+  status         String           @default("PENDING") // PENDING, PAID, FAILED
+  failureCode    String?
+  failureReason  String?
+
+  chargeRef      String           @unique             // mallsub_<mallId>_<periodStart ISO>
+  walletRef      String?
+  chargedAt      DateTime?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([mallId])
+  @@index([status])
 }
 
 // ============================================
@@ -488,11 +619,16 @@ model SubscriptionPlan {
   intervalDays  Int            @default(30)
   graceDays     Int            @default(7)
   listingLimit  Int?           // null = unlimited
+  // Which product this plan sells: STORE plans attach to a Store's
+  // Subscription, MALL plans to a Mall's MallSubscription.
+  kind          String         @default("STORE") // STORE | MALL
+  substoreLimit Int?           // MALL plans only; null = unlimited
   perks         String[]
   isActive      Boolean        @default(true)
   sortOrder     Int            @default(0)
 
-  subscriptions Subscription[]
+  subscriptions     Subscription[]
+  mallSubscriptions MallSubscription[] @relation("MallPlanSubs")
 
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -564,7 +700,7 @@ model SubscriptionCharge {
 model Report {
   id         String    @id @default(auto()) @map("_id") @db.ObjectId
   reporterId String?                       // null = anonymous visitor
-  targetType String                        // LISTING, STORE, REVIEW
+  targetType String                        // LISTING, STORE, MALL, REVIEW
   targetId   String    @db.ObjectId
   reason     String                        // SCAM, PROHIBITED, MISLEADING, MISCATEGORISED, OTHER
   details    String?

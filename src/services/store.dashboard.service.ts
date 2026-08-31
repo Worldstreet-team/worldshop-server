@@ -34,8 +34,8 @@ function daysUntil(date: Date | null | undefined): number | null {
 }
 
 export async function getDashboard(ownerId: string) {
-  const store = await prisma.store.findUnique({
-    where: { ownerId },
+  const store = await prisma.store.findFirst({
+    where: { ownerId, kind: 'PERSONAL' },
     include: { subscription: { include: { plan: true } } },
   });
   if (!store) throw createError(404, 'You do not have a store yet');

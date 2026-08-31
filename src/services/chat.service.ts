@@ -297,9 +297,11 @@ export async function listConversations(
   let where: Prisma.ConversationWhereInput;
 
   if (opts.side === 'selling') {
-    const store = await prisma.store.findUnique({ where: { ownerId: userId }, select: { id: true } });
-    if (!store) throw createError(403, 'You do not have a store');
-    where = { storeId: store.id };
+    // All stores this user runs — their personal store plus any mall
+    // substores. A mall owner's selling inbox spans every counter they staff.
+    const stores = await prisma.store.findMany({ where: { ownerId: userId }, select: { id: true } });
+    if (stores.length === 0) throw createError(403, 'You do not have a store');
+    where = { storeId: { in: stores.map((s) => s.id) } };
   } else {
     where = { buyerId: userId };
   }
@@ -440,12 +442,15 @@ export async function hasRepliedConversation(storeId: string, buyerId: string): 
 
 /** Total unread across both sides — for a single header badge. */
 export async function getUnreadSummary(userId: string) {
-  const store = await prisma.store.findUnique({ where: { ownerId: userId }, select: { id: true } });
+  const stores = await prisma.store.findMany({ where: { ownerId: userId }, select: { id: true } });
 
   const [buying, selling] = await Promise.all([
     prisma.conversation.aggregate({ where: { buyerId: userId }, _sum: { buyerUnread: true } }),
-    store
-      ? prisma.conversation.aggregate({ where: { storeId: store.id }, _sum: { vendorUnread: true } })
+    stores.length > 0
+      ? prisma.conversation.aggregate({
+          where: { storeId: { in: stores.map((s) => s.id) } },
+          _sum: { vendorUnread: true },
+        })
       : Promise.resolve({ _sum: { vendorUnread: 0 } }),
   ]);
 

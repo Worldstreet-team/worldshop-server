@@ -4,6 +4,7 @@ import app from './app';
 import { PORT } from './configs/envConfig';
 import { globalLog } from './configs/loggerConfig';
 import { runRenewalSweep } from './services/subscription.service';
+import { runMallRenewalSweep } from './services/mall.subscription.service';
 
 const DEFAULT_PORT = Number(PORT) || 3000;
 
@@ -22,9 +23,20 @@ httpServer.listen(DEFAULT_PORT, () => {
 const RENEWAL_SWEEP_MS = Number(process.env.RENEWAL_SWEEP_MINUTES || 60) * 60 * 1000;
 
 setInterval(() => {
-  runRenewalSweep().catch((err) => {
-    globalLog.error('[Subscription] Renewal sweep failed', {
-      error: (err as Error).message,
+  // Malls first: a lapsed mall hides its substores before the store sweep
+  // runs. Not correctness-critical (substores have no subscriptions of their
+  // own), just tidier ordering. Both sweeps are idempotent per period.
+  runMallRenewalSweep()
+    .catch((err) => {
+      globalLog.error('[MallSubscription] Renewal sweep failed', {
+        error: (err as Error).message,
+      });
+    })
+    .finally(() => {
+      runRenewalSweep().catch((err) => {
+        globalLog.error('[Subscription] Renewal sweep failed', {
+          error: (err as Error).message,
+        });
+      });
     });
-  });
 }, RENEWAL_SWEEP_MS);
