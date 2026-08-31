@@ -442,7 +442,7 @@ model Store {
 
 // ============================================
 // MALLS
-// A mall is a premium umbrella any user can pay for ($100/month by default).
+// A mall is a premium umbrella any user can pay for ($300/month by default).
 // The owner creates substores inside it; the mall subscription covers them
 // all, so substores carry no Subscription row. Public page shows branding,
 // the substore grid and an owner-curated rail of featured listings.
