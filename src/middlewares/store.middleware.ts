@@ -70,7 +70,7 @@ export async function requireMall(req: Request, res: Response, next: NextFunctio
     res.status(403).json({
       success: false,
       code: 'NO_MALL',
-      message: 'Create a mall before managing substores.',
+      message: 'Create a mall before managing stores.',
     });
     return;
   }
@@ -111,7 +111,7 @@ export async function requireSubstore(
   // ("Malformed ObjectID"), turning a bad URL into a 500.
   const substoreId = String(req.params.substoreId);
   if (!/^[0-9a-f]{24}$/.test(substoreId)) {
-    res.status(404).json({ success: false, message: 'Substore not found.' });
+    res.status(404).json({ success: false, message: 'Store not found.' });
     return;
   }
 
@@ -121,7 +121,7 @@ export async function requireSubstore(
   });
 
   if (!substore) {
-    res.status(404).json({ success: false, message: 'Substore not found.' });
+    res.status(404).json({ success: false, message: 'Store not found.' });
     return;
   }
 
@@ -131,7 +131,7 @@ export async function requireSubstore(
     res.status(409).json({
       success: false,
       code: 'SUBSTORE_ARCHIVED',
-      message: 'This substore is archived. Restore it before managing its listings.',
+      message: 'This store is archived. Restore it before managing its listings.',
     });
     return;
   }

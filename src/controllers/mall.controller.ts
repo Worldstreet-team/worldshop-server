@@ -112,7 +112,7 @@ export const listSubstores = catchAsync(async (req: Request, res: Response) => {
 /** POST /api/v1/malls/me/substores */
 export const createSubstore = catchAsync(async (req: Request, res: Response) => {
   const substore = await mallService.createSubstore(requireUserId(req), req.body);
-  res.status(201).json({ success: true, data: substore, message: 'Substore created' });
+  res.status(201).json({ success: true, data: substore, message: 'Store created' });
 });
 
 /** GET /api/v1/malls/me/substores/:substoreId */
@@ -131,7 +131,7 @@ export const updateSubstore = catchAsync(async (req: Request, res: Response) => 
     String(req.params.substoreId),
     req.body,
   );
-  res.status(200).json({ success: true, data: substore, message: 'Substore updated' });
+  res.status(200).json({ success: true, data: substore, message: 'Store updated' });
 });
 
 /** DELETE /api/v1/malls/me/substores/:substoreId */
@@ -155,7 +155,7 @@ export const restoreSubstore = catchAsync(async (req: Request, res: Response) =>
     requireUserId(req),
     String(req.params.substoreId),
   );
-  res.status(200).json({ success: true, data: substore, message: 'Substore restored' });
+  res.status(200).json({ success: true, data: substore, message: 'Store restored' });
 });
 
 /**

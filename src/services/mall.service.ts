@@ -20,7 +20,6 @@ import {
   PUBLIC_STORE_SELECT,
 } from './marketplace.store.service';
 import { getPlanByCode, isVisibleStatus } from './subscription.service';
-import { MALL_PAYWALL_ENABLED } from '../configs/featureFlags';
 import { createMallSubscription, DEFAULT_MALL_PLAN_CODE } from './mall.subscription.service';
 import type {
   CreateMallInput,
@@ -30,19 +29,12 @@ import type {
 } from '../validators/mall.validator';
 import { Prisma } from '../../generated/prisma';
 
-// With the paywall off (see featureFlags) a DRAFT mall — created but never
-// charged — is public too, so the feature can be tested without paying. Every
-// other status still hides: EXPIRED, SUSPENDED and BANNED are not "unpaid",
-// they are lapsed or moderated, and those must keep hiding regardless.
-const VISIBLE_STATUSES: Prisma.EnumMallStatusFilter = MALL_PAYWALL_ENABLED
-  ? { in: ['ACTIVE', 'GRACE'] }
-  : { in: ['ACTIVE', 'GRACE', 'DRAFT'] };
+// A mall must be paid up to be seen. DRAFT (created, never charged) is not
+// public — that is the paywall. The MALL_PAYWALL flag that briefly let DRAFT
+// through for testing is gone; visibility is the subscription rule again, for
+// malls exactly as for stores.
+const VISIBLE_STATUSES: Prisma.EnumMallStatusFilter = { in: ['ACTIVE', 'GRACE'] };
 
-/** Mall-side visibility. Defers to the subscription rule when the paywall is
- *  on, and additionally lets DRAFT through when it is off. */
-function isMallVisible(status: string): boolean {
-  return isVisibleStatus(status) || (!MALL_PAYWALL_ENABLED && status === 'DRAFT');
-}
 const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
 
 export const MAX_FEATURED_LISTINGS = 12;
@@ -135,7 +127,7 @@ export async function getMyMall(ownerId: string) {
 
   return {
     ...(await signStoreBranding(mall)),
-    isPubliclyVisible: isMallVisible(mall.status),
+    isPubliclyVisible: isVisibleStatus(mall.status),
   };
 }
 
@@ -186,7 +178,7 @@ export async function createSubstore(ownerId: string, input: CreateSubstoreInput
 
   const limit = mall.subscription?.plan?.substoreLimit ?? null;
   if (limit !== null && mall.substoreCount >= limit) {
-    throw createError(409, `Your plan allows up to ${limit} substores`);
+    throw createError(409, `Your plan allows up to ${limit} stores`);
   }
 
   const slug = await buildUniqueStoreSlug(input.name);
@@ -213,7 +205,7 @@ export async function createSubstore(ownerId: string, input: CreateSubstoreInput
         // ("hidden pending the mall's billing"), NOT DRAFT: the payment
         // cascade flips GRACE/EXPIRED to ACTIVE but deliberately never DRAFT,
         // which is reserved for substores the owner archived on purpose.
-        status: isMallVisible(mall.status) ? 'ACTIVE' : 'EXPIRED',
+        status: isVisibleStatus(mall.status) ? 'ACTIVE' : 'EXPIRED',
       },
     }),
     prisma.mall.update({
@@ -243,7 +235,7 @@ export async function createSubstore(ownerId: string, input: CreateSubstoreInput
           data: { substoreCount: { decrement: 1 } },
         }),
       ]);
-      throw createError(409, `Your plan allows up to ${limit} substores`);
+      throw createError(409, `Your plan allows up to ${limit} stores`);
     }
   }
 
@@ -294,7 +286,7 @@ const OBJECT_ID_RE = /^[0-9a-f]{24}$/;
 
 /** The substore must belong to the caller's mall — anything else is a 404. */
 export async function getOwnedSubstore(ownerId: string, substoreId: string) {
-  if (!OBJECT_ID_RE.test(substoreId)) throw createError(404, 'Substore not found');
+  if (!OBJECT_ID_RE.test(substoreId)) throw createError(404, 'Store not found');
 
   const mall = await prisma.mall.findUnique({ where: { ownerId }, select: { id: true } });
   if (!mall) throw createError(404, 'You do not have a mall yet');
@@ -302,7 +294,7 @@ export async function getOwnedSubstore(ownerId: string, substoreId: string) {
   const substore = await prisma.store.findFirst({
     where: { id: substoreId, mallId: mall.id, kind: 'MALL_SUBSTORE' },
   });
-  if (!substore) throw createError(404, 'Substore not found');
+  if (!substore) throw createError(404, 'Store not found');
   return substore;
 }
 
@@ -348,9 +340,9 @@ export async function updateSubstore(
 export async function archiveSubstore(ownerId: string, substoreId: string) {
   const substore = await getOwnedSubstore(ownerId, substoreId);
 
-  if (substore.status === 'DRAFT') throw createError(409, 'This substore is already archived');
+  if (substore.status === 'DRAFT') throw createError(409, 'This store is already archived');
   if (substore.status === 'SUSPENDED' || substore.status === 'BANNED') {
-    throw createError(403, 'This substore was actioned by an admin. Contact support.');
+    throw createError(403, 'This store was actioned by an admin. Contact support.');
   }
 
   const [listings, reviews, conversations] = await Promise.all([
@@ -394,17 +386,17 @@ export async function restoreSubstore(ownerId: string, substoreId: string) {
   const mall = await requireOwnedMall(ownerId);
   const substore = await getOwnedSubstore(ownerId, substoreId);
 
-  if (substore.status !== 'DRAFT') throw createError(409, 'This substore is not archived');
+  if (substore.status !== 'DRAFT') throw createError(409, 'This store is not archived');
 
   const limit = mall.subscription?.plan?.substoreLimit ?? null;
   if (limit !== null && mall.substoreCount >= limit) {
-    throw createError(409, `Your plan allows up to ${limit} substores`);
+    throw createError(409, `Your plan allows up to ${limit} stores`);
   }
 
   const [restored] = await prisma.$transaction([
     prisma.store.update({
       where: { id: substore.id },
-      data: { status: isMallVisible(mall.status) ? 'ACTIVE' : 'EXPIRED' },
+      data: { status: isVisibleStatus(mall.status) ? 'ACTIVE' : 'EXPIRED' },
     }),
     prisma.mall.update({
       where: { id: mall.id },
@@ -412,6 +404,69 @@ export async function restoreSubstore(ownerId: string, substoreId: string) {
     }),
   ]);
   return signStoreBranding(restored);
+}
+
+// ============================================
+// Substore status reconciliation
+// ============================================
+
+const ALL_MALL_STATUSES = [
+  'DRAFT', 'ACTIVE', 'GRACE', 'EXPIRED', 'SUSPENDED', 'BANNED',
+] as const;
+const VISIBLE_MALL_STATUSES = ALL_MALL_STATUSES.filter((s) => isVisibleStatus(s));
+const HIDDEN_MALL_STATUSES = ALL_MALL_STATUSES.filter((s) => !isVisibleStatus(s));
+
+/** Visible mall, substore stuck EXPIRED → it should be back on air. */
+const STRANDED_SUBSTORES: Prisma.StoreWhereInput = {
+  kind: 'MALL_SUBSTORE',
+  status: 'EXPIRED',
+  mall: { is: { status: { in: VISIBLE_MALL_STATUSES } } },
+};
+
+/** Hidden mall, substore still showing → the renewal sweep would hide it. */
+const OVEREXPOSED_SUBSTORES: Prisma.StoreWhereInput = {
+  kind: 'MALL_SUBSTORE',
+  status: { in: ['ACTIVE', 'GRACE'] },
+  mall: { is: { status: { in: HIDDEN_MALL_STATUSES } } },
+};
+
+/**
+ * Re-derives the substore statuses that mall visibility owns.
+ *
+ * Substore status is CASCADED, not derived: it is stamped once at creation
+ * and rewritten by the mall's billing transitions. That leaves a gap whenever
+ * a mall's visibility changes WITHOUT a billing transition — which is what
+ * turning the MALL_PAYWALL flag on and off did in both directions, and what
+ * any future direct edit to Mall.status would do again. Stores keep whatever
+ * the old rule stamped, the public mall page filters them out, and nothing
+ * brings them back: the Stores page offers Restore only on an archived
+ * (DRAFT) store, so the owner is left with a permanently invisible
+ * storefront. This is the repair, and the guard against a repeat.
+ *
+ * Only ACTIVE/GRACE/EXPIRED are touched — the same exclusion cascadeSubstores
+ * makes. DRAFT is an owner archive, SUSPENDED/BANNED are moderation; neither
+ * is visibility's to overwrite.
+ *
+ * Idempotent: a second run matches nothing. Safe to run on every sweep.
+ * `dryRun` counts what would change without writing — for the repair script.
+ */
+export async function reconcileSubstoreStatuses(
+  opts: { dryRun?: boolean } = {},
+): Promise<{ revealed: number; hidden: number }> {
+  if (opts.dryRun) {
+    const [revealed, hidden] = await Promise.all([
+      prisma.store.count({ where: STRANDED_SUBSTORES }),
+      prisma.store.count({ where: OVEREXPOSED_SUBSTORES }),
+    ]);
+    return { revealed, hidden };
+  }
+
+  const [revealed, hidden] = await prisma.$transaction([
+    prisma.store.updateMany({ where: STRANDED_SUBSTORES, data: { status: 'ACTIVE' } }),
+    prisma.store.updateMany({ where: OVEREXPOSED_SUBSTORES, data: { status: 'EXPIRED' } }),
+  ]);
+
+  return { revealed: revealed.count, hidden: hidden.count };
 }
 
 // ============================================
@@ -436,7 +491,7 @@ export async function setFeaturedListings(ownerId: string, listingIds: string[])
       },
     });
     if (valid !== unique.length) {
-      throw createError(400, 'Featured products must be published listings from your substores');
+      throw createError(400, 'Featured products must be published listings from your stores');
     }
   }
 
@@ -457,7 +512,7 @@ export async function setFeaturedListings(ownerId: string, listingIds: string[])
  */
 export async function getPublicMallBySlug(slug: string) {
   const mall = await prisma.mall.findUnique({ where: { slug }, select: PUBLIC_MALL_SELECT });
-  if (!mall || !isMallVisible(mall.status)) return null;
+  if (!mall || !isVisibleStatus(mall.status)) return null;
 
   const [substores, featured] = await Promise.all([
     prisma.store.findMany({

@@ -17,6 +17,8 @@
     "teardown": "npx ts-node scripts/marketplace-teardown.ts",
     "seed:plans": "npx ts-node scripts/seed-subscription-plans.ts",
     "backfill:store-kind": "npx ts-node scripts/backfill-store-kind.ts",
+    "repair:substore-status": "npx ts-node scripts/repair-substore-status.ts",
+    "delete:malls": "npx ts-node scripts/delete-malls.ts",
     "reset:credit": "npx ts-node scripts/reset-store-credit.ts",
     "seed:taxonomy": "npx ts-node scripts/seed-taxonomy.ts"
   },

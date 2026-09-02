@@ -314,6 +314,38 @@ describe('malls', () => {
     expect((await prisma.store.findUnique({ where: { id: sub.id } }))?.status).toBe('DRAFT');
   });
 
+  it('reconciles a substore stranded EXPIRED under a visible mall', async () => {
+    const { ownerId, mall } = await makeMall('reconcile');
+    const sub = await mallService.createSubstore(ownerId, { name: 'Stranded Sub' });
+
+    // The stranded state: a visible mall over a substore stamped EXPIRED.
+    // Set both directly rather than billing for it — the point is precisely
+    // that NO billing transition is coming to correct this. In production the
+    // paywall flag produced it; the invariant being tested is the same.
+    await prisma.mall.update({ where: { id: mall.id }, data: { status: 'ACTIVE' } });
+    await prisma.store.update({ where: { id: sub.id }, data: { status: 'EXPIRED' } });
+    expect((await mallService.getPublicMallBySlug(mall.slug))?.substores).toHaveLength(0);
+
+    await mallService.reconcileSubstoreStatuses();
+
+    expect((await prisma.store.findUnique({ where: { id: sub.id } }))?.status).toBe('ACTIVE');
+    expect((await mallService.getPublicMallBySlug(mall.slug))?.substores).toHaveLength(1);
+  });
+
+  it('reconciliation leaves archived and moderated substores alone', async () => {
+    const { ownerId } = await makeMall('reconcile-guard');
+    const archived = await mallService.createSubstore(ownerId, { name: 'Archived Sub' });
+    const banned = await mallService.createSubstore(ownerId, { name: 'Banned Sub' });
+
+    await prisma.store.update({ where: { id: archived.id }, data: { status: 'DRAFT' } });
+    await prisma.store.update({ where: { id: banned.id }, data: { status: 'BANNED' } });
+
+    await mallService.reconcileSubstoreStatuses();
+
+    expect((await prisma.store.findUnique({ where: { id: archived.id } }))?.status).toBe('DRAFT');
+    expect((await prisma.store.findUnique({ where: { id: banned.id } }))?.status).toBe('BANNED');
+  });
+
   it('validates featured listings: substore-owned, published, capped at 12', async () => {
     const { ownerId, mall } = await makeMall('featured');
     const sub = await mallService.createSubstore(ownerId, { name: 'Featured Sub' });

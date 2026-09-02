@@ -5,6 +5,7 @@ import { PORT } from './configs/envConfig';
 import { globalLog } from './configs/loggerConfig';
 import { runRenewalSweep } from './services/subscription.service';
 import { runMallRenewalSweep } from './services/mall.subscription.service';
+import { reconcileSubstoreStatuses } from './services/mall.service';
 
 const DEFAULT_PORT = Number(PORT) || 3000;
 
@@ -22,6 +23,29 @@ httpServer.listen(DEFAULT_PORT, () => {
  */
 const RENEWAL_SWEEP_MS = Number(process.env.RENEWAL_SWEEP_MINUTES || 60) * 60 * 1000;
 
+/**
+ * A store's visibility follows its mall, but only via billing transitions —
+ * so a mall whose status changes any other way leaves its stores stranded on
+ * the old rule. Reconciling is two idempotent updateManys, cheap enough to
+ * ride along with every sweep. Run at boot as well, so a deploy that changes
+ * the visibility rule takes effect immediately rather than up to an hour later.
+ */
+function reconcileSubstores(): Promise<void> {
+  return reconcileSubstoreStatuses()
+    .then(({ revealed, hidden }) => {
+      if (revealed || hidden) {
+        globalLog.info('[Mall] Substore statuses reconciled', { revealed, hidden });
+      }
+    })
+    .catch((err) => {
+      globalLog.error('[Mall] Substore reconciliation failed', {
+        error: (err as Error).message,
+      });
+    });
+}
+
+reconcileSubstores();
+
 setInterval(() => {
   // Malls first: a lapsed mall hides its substores before the store sweep
   // runs. Not correctness-critical (substores have no subscriptions of their
@@ -32,6 +56,7 @@ setInterval(() => {
         error: (err as Error).message,
       });
     })
+    .finally(() => reconcileSubstores())
     .finally(() => {
       runRenewalSweep().catch((err) => {
         globalLog.error('[Subscription] Renewal sweep failed', {

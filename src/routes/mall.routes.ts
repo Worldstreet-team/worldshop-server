@@ -35,6 +35,20 @@ router.get('/me/subscription', requireAuth, mallController.getMySubscription);
 router.post('/me/subscription/charge', requireAuth, mallController.chargeMySubscription);
 router.post('/me/subscription/cancel', requireAuth, mallController.cancelMySubscription);
 
+// Branding upload for the mall itself. The substore equivalent rides on the
+// substore's listing router below; the mall has no listings of its own, so it
+// needs its own mount. requireMall, not just requireAuth: there is nothing to
+// brand until the mall exists.
+router.post(
+  '/me/upload/images',
+  requireAuth,
+  requireMall,
+  uploadListingImages,
+  handleMulterError,
+  uploadController.uploadImages,
+);
+router.delete('/me/upload/images', requireAuth, requireMall, uploadController.deleteImages);
+
 router.put(
   '/me/featured',
   requireAuth,
