@@ -26,7 +26,7 @@ const PLANS = [
   {
     code: 'standard',
     name: 'Standard',
-    amountMinor: 5000, // $50.00
+    amountMinor: 10000, // $100.00
     currency: 'USD',
     intervalMonths: 1, // same date each month, not every 30 days
     intervalDays: 30, // fallback only; ignored while intervalMonths is set
@@ -51,13 +51,14 @@ const PLANS = [
     graceDays: 7,
     listingLimit: null as number | null,
     kind: 'MALL',
-    substoreLimit: 20,
+    // The column keeps its schema name; the product calls these "stores".
+    substoreLimit: 6,
     perks: [
       'Your own mall page in the marketplace',
-      'Up to 20 substores, all covered by one subscription',
+      'Up to 6 stores, all covered by one subscription',
       'Featured products showcase (up to 12)',
-      'Unlimited listings per substore',
-      'Buyer messaging and reviews for every substore',
+      'Unlimited listings per store',
+      'Buyer messaging and reviews for every store',
     ],
     sortOrder: 100,
   },
