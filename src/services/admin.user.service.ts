@@ -38,7 +38,6 @@ export async function listUsers(query: AdminUserListInput) {
       { email: { contains: query.search, mode: 'insensitive' } },
       { firstName: { contains: query.search, mode: 'insensitive' } },
       { lastName: { contains: query.search, mode: 'insensitive' } },
-      { storeName: { contains: query.search, mode: 'insensitive' } },
     ];
   }
 
