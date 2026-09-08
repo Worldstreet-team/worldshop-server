@@ -20,3 +20,13 @@ export const updateUserRole = catchAsync(async (req: Request, res: Response, _ne
     message: `User role updated to ${input.role}.`,
   });
 });
+
+export const resendSetup = catchAsync(async (req: Request, res: Response, _next: NextFunction) => {
+  const result = await adminUserService.resendSetupLink(req.user!.id, req.params.id as string);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+    message: 'Setup link sent.',
+  });
+});

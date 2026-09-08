@@ -182,28 +182,27 @@ async function overTokenLimit(userId: string): Promise<boolean> {
 
 /**
  * Issues a setup link. Exported because promoting a user to admin needs it too.
- * Throws if the mail fails, so the caller can report it.
+ * Throws if the mail fails, so the caller can report it. Returns the expiry so
+ * the console can say how long the invite has left without re-reading it.
  */
 export async function issueSetupToken(
   userId: string,
   email: string,
   firstName: string,
-): Promise<void> {
+): Promise<Date> {
   await supersedeTokens(userId, 'SETUP');
 
   const { raw, hash } = generateToken();
+  const expiresAt = expiresIn(SETUP_TOKEN_TTL_MS);
+
   await prisma.adminAuthToken.create({
     // usedAt written explicitly — see NULLABLE_FIELDS_NOTE.
-    data: {
-      userId,
-      tokenHash: hash,
-      purpose: 'SETUP',
-      expiresAt: expiresIn(SETUP_TOKEN_TTL_MS),
-      usedAt: null,
-    },
+    data: { userId, tokenHash: hash, purpose: 'SETUP', expiresAt, usedAt: null },
   });
 
   await sendAdminPasswordSetupEmail({ to: email, firstName, token: raw });
+
+  return expiresAt;
 }
 
 /**

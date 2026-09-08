@@ -56,5 +56,8 @@ router.delete('/upload/images', uploadController.deleteImages);
 // ─── Users ──────────────────────────────────────────────────────
 router.get('/users', adminUserController.listUsers);
 router.patch('/users/:id/role', adminUserController.updateUserRole);
+// For an admin whose setup link was lost or has expired; without it the only
+// remedy is demote-then-promote.
+router.post('/users/:id/resend-setup', adminUserController.resendSetup);
 
 export default router;
