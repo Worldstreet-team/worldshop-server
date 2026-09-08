@@ -1,8 +1,10 @@
 import express, { NextFunction, Request, Response } from 'express';
 import * as Sentry from '@sentry/node';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { clerkMiddleware } from '@clerk/express';
 
+import authRoutes from './routes/auth.routes';
 import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
 import categoryRoutes from './routes/category.routes';
@@ -24,6 +26,10 @@ import './configs/sentryConfig';
 
 const app = express();
 
+// One proxy hop on Render. Without this the per-IP limiters on the admin auth
+// routes see the proxy's address and rate-limit every caller as one client.
+app.set('trust proxy', 1);
+
 // connect to DB
 connectDatabase();
 
@@ -42,6 +48,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID'],
 }));
+
+// Reads the admin console's session cookie. Unsigned on purpose — the token is
+// a 256-bit random value checked against the database, so a signature adds
+// nothing a lookup does not already do.
+app.use(cookieParser());
 
 // Clerk middleware — verifies session tokens on every request
 app.use(clerkMiddleware());
@@ -68,11 +79,13 @@ app.get('/', async (req: Request, res: Response, next: NextFunction) => {
       reports: '/api/v1/reports',
       profile: '/api/v1/profile',
       admin: '/api/v1/admin',
+      auth: '/api/v1/auth',
     },
   });
 });
 
 app.use('/health', healthCheck);
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/categories', categoryRoutes);

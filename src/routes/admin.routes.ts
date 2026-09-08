@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middlewares/auth.middleware';
-import { requireAdmin } from '../middlewares/admin.middleware';
+import { requireAdminSession } from '../middlewares/adminSession.middleware';
 import * as adminCategoryController from '../controllers/admin.category.controller';
 import * as marketplaceReviewController from '../controllers/marketplace.review.controller';
 import * as reportController from '../controllers/report.controller';
@@ -16,8 +15,9 @@ import { uploadProductImages, handleMulterError } from '../middlewares/upload.mi
  */
 const router = Router();
 
-// All admin routes require auth + admin role
-router.use(requireAuth, requireAdmin);
+// The console has its own credential auth — an admin password and a session
+// cookie, not a Clerk token. See middlewares/adminSession.middleware.ts.
+router.use(requireAdminSession);
 
 // ─── Report Queue ───────────────────────────────────────────────
 // The whole of trust and safety: de-listing is the only enforcement lever.

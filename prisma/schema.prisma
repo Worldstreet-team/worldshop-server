@@ -53,8 +53,51 @@ model UserProfile {
   gender           Gender?
   role             Role          @default(CUSTOMER)
 
+  // Admin console credentials. Shoppers and vendors never have a password —
+  // they authenticate through Clerk. Only the admin console asks for one, so
+  // null is the normal state for everyone except admins who have set one up.
+  passwordHash     String?
+  passwordSetAt    DateTime?
+
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+}
+
+// ============================================
+// ADMIN CREDENTIAL AUTH
+// The admin console does not use Clerk: admins log in with a password and
+// get a server-issued session cookie. Both models store only a sha256 hash
+// of the token they represent, so a database leak yields nothing usable.
+// ============================================
+
+enum AdminTokenPurpose {
+  SETUP
+  RESET
+}
+
+/// Single-use, expiring link tokens for setting or resetting an admin password.
+model AdminAuthToken {
+  id        String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String // UserProfile.userId
+  tokenHash String            @unique // sha256(raw token), hex
+  purpose   AdminTokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime? // consumed by the user, or invalidated by a newer token
+  createdAt DateTime          @default(now())
+
+  @@index([userId, purpose])
+}
+
+/// An active admin console login. Fixed expiry, no sliding window.
+model AdminSession {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String // UserProfile.userId
+  tokenHash String    @unique // sha256(raw token), hex
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // ============================================

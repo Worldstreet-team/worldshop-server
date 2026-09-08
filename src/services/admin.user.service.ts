@@ -1,6 +1,8 @@
 import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { buildPagination } from '../utils/pagination';
+import { globalLog } from '../configs/loggerConfig';
+import { issueSetupToken, revokeAdminAccess } from './auth.service';
 import type { AdminUserListInput, AdminUserRoleInput } from '../validators/admin.user.validator';
 
 function seededAdminEmails(): string[] {
@@ -75,7 +77,14 @@ export async function updateUserRole(
 
   const target = await prisma.userProfile.findUnique({
     where: { id: profileId },
-    select: { id: true, userId: true, role: true },
+    select: {
+      id: true,
+      userId: true,
+      role: true,
+      email: true,
+      firstName: true,
+      passwordHash: true,
+    },
   });
 
   if (!target) throw createError(404, 'User not found');
@@ -83,7 +92,7 @@ export async function updateUserRole(
     throw createError(400, 'You cannot remove your own admin role');
   }
 
-  return prisma.userProfile.update({
+  const updated = await prisma.userProfile.update({
     where: { id: profileId },
     data: { role: input.role },
     select: {
@@ -96,4 +105,28 @@ export async function updateUserRole(
       createdAt: true,
     },
   });
+
+  const promoted = target.role !== 'ADMIN' && input.role === 'ADMIN';
+  const demoted = target.role === 'ADMIN' && input.role !== 'ADMIN';
+
+  // A new admin has no password yet, so mail them a link to choose one. Someone
+  // being re-promoted keeps the password they already set — no email needed.
+  if (promoted && !target.passwordHash) {
+    try {
+      await issueSetupToken(target.userId, target.email, target.firstName);
+      return { ...updated, setupEmailSent: true };
+    } catch (err) {
+      // The promotion itself stands; the console reports the failed invite so
+      // an admin can retry, and the new admin can request a link themselves.
+      globalLog.error('Failed to send admin setup email', {
+        userId: target.userId,
+        message: (err as Error)?.message,
+      });
+      return { ...updated, setupEmailSent: false };
+    }
+  }
+
+  if (demoted) await revokeAdminAccess(target.userId);
+
+  return updated;
 }
