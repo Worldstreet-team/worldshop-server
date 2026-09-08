@@ -31,7 +31,7 @@ export async function requireAdminSession(
     const user = await authService.getSessionUser(raw);
 
     if (!user) {
-      res.clearCookie(ADMIN_SESSION_COOKIE, sessionCookieOptions());
+      res.clearCookie(ADMIN_SESSION_COOKIE, sessionCookieOptions(req));
       res.status(401).json({
         success: false,
         message: 'Your admin session has expired. Please sign in again.',
