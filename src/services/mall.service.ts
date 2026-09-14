@@ -47,7 +47,7 @@ export const MAX_FEATURED_LISTINGS = 12;
 const PUBLIC_MALL_SELECT = {
   id: true, name: true, slug: true, description: true, logo: true, banner: true,
   phone: true, whatsapp: true, website: true,
-  state: true, city: true, address: true,
+  country: true, state: true, city: true, address: true,
   status: true, substoreCount: true, featuredListingIds: true,
   createdAt: true,
 } satisfies Prisma.MallSelect;
@@ -104,6 +104,7 @@ export async function createMall(ownerId: string, input: CreateMallInput) {
       whatsapp: input.whatsapp,
       email: input.email ?? profile.email,
       website: input.website,
+      country: input.country,
       state: input.state,
       city: input.city,
       address: input.address,
@@ -149,6 +150,7 @@ export async function updateMyMall(ownerId: string, input: UpdateMallInput) {
       whatsapp: input.whatsapp,
       email: input.email,
       website: input.website,
+      country: input.country,
       state: input.state,
       city: input.city,
       address: input.address,
@@ -197,6 +199,7 @@ export async function createSubstore(ownerId: string, input: CreateSubstoreInput
         email: input.email,
         website: input.website,
         // A substore sits where its mall sits unless the owner says otherwise.
+        country: input.country ?? mall.country,
         state: input.state ?? mall.state,
         city: input.city ?? mall.city,
         address: input.address ?? mall.address,
@@ -319,6 +322,7 @@ export async function updateSubstore(
       whatsapp: input.whatsapp,
       email: input.email,
       website: input.website,
+      country: input.country,
       state: input.state,
       city: input.city,
       address: input.address,
@@ -545,9 +549,10 @@ export async function getPublicMallBySlug(slug: string) {
 }
 
 /** Browse: only malls currently paid up. */
-export async function listPublicMalls(opts: { page: number; limit: number; state?: string }) {
+export async function listPublicMalls(opts: { page: number; limit: number; country?: string; state?: string }) {
   const where: Prisma.MallWhereInput = {
     status: VISIBLE_STATUSES,
+    ...(opts.country ? { country: opts.country } : {}),
     ...(opts.state ? { state: opts.state } : {}),
   };
 

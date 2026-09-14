@@ -21,7 +21,7 @@ export async function requireStore(req: Request, res: Response, next: NextFuncti
 
   const store = await prisma.store.findFirst({
     where: { ownerId: req.user.id, kind: 'PERSONAL' },
-    select: { id: true, slug: true, status: true, state: true, city: true },
+    select: { id: true, slug: true, status: true, country: true, state: true, city: true },
   });
 
   if (!store) {
@@ -63,7 +63,7 @@ export async function requireMall(req: Request, res: Response, next: NextFunctio
 
   const mall = await prisma.mall.findUnique({
     where: { ownerId: req.user.id },
-    select: { id: true, slug: true, status: true, state: true, city: true },
+    select: { id: true, slug: true, status: true, country: true, state: true, city: true },
   });
 
   if (!mall) {
@@ -117,7 +117,7 @@ export async function requireSubstore(
 
   const substore = await prisma.store.findFirst({
     where: { id: substoreId, mallId: req.mall.id, kind: 'MALL_SUBSTORE' },
-    select: { id: true, slug: true, status: true, state: true, city: true },
+    select: { id: true, slug: true, status: true, country: true, state: true, city: true },
   });
 
   if (!substore) {

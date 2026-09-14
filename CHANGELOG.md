@@ -4,6 +4,23 @@ All notable changes to worldshop-server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-09-14
+
+### Added — Country on stores, malls and listings
+
+- `Store.country`, `Mall.country`, `Product.country` — ISO 3166-1 alpha-2,
+  `@default("NG")`. `state` stays a free display-name string, now read inside
+  that country. New `[country, state, status]` indexes on Store and Mall
+- Create/update validators for stores, malls, substores and listings accept
+  `country` (two letters, upper-cased); create defaults to `NG`. A substore or
+  listing without one inherits its mall's / store's country
+- `GET /stores`, `GET /malls`, `GET /listings` accept `?country=` alongside
+  `?state=`
+- `scripts/backfill-country.ts` (`npm run backfill:country -- --apply`) —
+  sets `country: "NG"` on documents that predate the field. A Prisma
+  `@default` applies on write only, so without it `where: { country: 'NG' }`
+  misses every existing row
+
 ## [1.0.0] - 2026-07-27
 
 ### Removed — The ecommerce API

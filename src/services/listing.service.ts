@@ -93,7 +93,7 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 }
 
 export async function createListing(
-  store: { id: string; state: string; city: string | null },
+  store: { id: string; country: string; state: string; city: string | null },
   input: CreateListingInput,
 ) {
   await assertLeafCategory(input.categoryId);
@@ -125,6 +125,7 @@ export async function createListing(
       attributes: input.attributes ? toJson(input.attributes) : undefined,
       customFields: toJson(input.customFields.map((f, i) => ({ ...f, sortOrder: i }))),
 
+      country: input.country ?? store.country,
       state: input.state ?? store.state,
       city: input.city ?? store.city,
 
@@ -191,6 +192,7 @@ export async function updateListing(storeId: string, listingId: string, input: U
       customFields: input.customFields
         ? toJson(input.customFields.map((f, i) => ({ ...f, sortOrder: i })))
         : undefined,
+      country: input.country,
       state: input.state,
       city: input.city,
       ...(input.variants
@@ -363,7 +365,7 @@ const PUBLIC_LISTING_INCLUDE = {
   store: {
     select: {
       id: true, name: true, slug: true, logo: true, verificationTier: true,
-      state: true, city: true, phone: true, whatsapp: true, website: true,
+      country: true, state: true, city: true, phone: true, whatsapp: true, website: true,
       avgRating: true, reviewCount: true, listingCount: true,
       // Attentiveness matters as much as rating when nothing is transacted
       // on-platform, so it travels with the listing.
@@ -437,6 +439,7 @@ export async function listPublicListings(query: {
   page: number;
   limit: number;
   categoryId?: string;
+  country?: string;
   state?: string;
   search?: string;
   /**
@@ -451,6 +454,7 @@ export async function listPublicListings(query: {
     status: 'PUBLISHED',
     store: { is: { status: VISIBLE_STORE_STATUSES } },
     ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+    ...(query.country ? { country: query.country } : {}),
     ...(query.state ? { state: query.state } : {}),
     ...(query.condition ? { condition: query.condition } : {}),
     ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
@@ -469,7 +473,7 @@ export async function listPublicListings(query: {
       include: {
         variants: true,
         category: { select: { id: true, name: true, slug: true } },
-        store: { select: { id: true, name: true, slug: true, state: true, verificationTier: true } },
+        store: { select: { id: true, name: true, slug: true, country: true, state: true, verificationTier: true } },
       },
       orderBy: [{ isFeatured: 'desc' }, { publishedAt: 'desc' }],
       skip: (query.page - 1) * query.limit,

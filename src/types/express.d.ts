@@ -13,6 +13,7 @@ export interface StoreContext {
   id: string;
   slug: string;
   status: 'DRAFT' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'SUSPENDED' | 'BANNED';
+  country: string;
   state: string;
   city: string | null;
 }
@@ -22,6 +23,7 @@ export interface MallContext {
   id: string;
   slug: string;
   status: 'DRAFT' | 'ACTIVE' | 'GRACE' | 'EXPIRED' | 'SUSPENDED' | 'BANNED';
+  country: string;
   state: string;
   city: string | null;
 }

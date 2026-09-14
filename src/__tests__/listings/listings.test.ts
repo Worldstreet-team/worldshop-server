@@ -51,11 +51,12 @@ async function makeStore(name: string, status: 'DRAFT' | 'ACTIVE' = 'DRAFT') {
       ownerId,
       name: `${name} Store`,
       slug: `${SLUG}-${name}`,
+      country: 'NG',
       state: 'Lagos',
       city: 'Ikeja',
       status,
     },
-    select: { id: true, status: true, state: true, city: true, slug: true },
+    select: { id: true, status: true, country: true, state: true, city: true, slug: true },
   });
 }
 

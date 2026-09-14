@@ -217,6 +217,7 @@ model Product {
   priceType     PriceType        @default(FIXED)
   maxPrice      Float?           // when priceType = RANGE
   isNegotiable  Boolean          @default(true)
+  country       String           @default("NG") // ISO 3166-1 alpha-2, copied from the store
   state         String?          // falls back to the store's location
   city          String?
   viewCount     Int              @default(0)
@@ -441,6 +442,9 @@ model Store {
   email            String?
   website          String?
 
+  // ISO 3166-1 alpha-2. Nigerian rows predate the field, hence the default;
+  // `state` is the subdivision's display name within that country.
+  country          String           @default("NG")
   state            String
   city             String?
   address          String?
@@ -481,6 +485,7 @@ model Store {
   @@index([mallId])
   @@index([status])
   @@index([state, status])
+  @@index([country, state, status])
 }
 
 // ============================================
@@ -514,6 +519,7 @@ model Mall {
   email              String?
   website            String?
 
+  country            String            @default("NG") // ISO 3166-1 alpha-2
   state              String
   city               String?
   address            String?
@@ -537,6 +543,7 @@ model Mall {
 
   @@index([status])
   @@index([state, status])
+  @@index([country, state, status])
 }
 
 // Parallel to Subscription rather than folded into it: on MongoDB a unique

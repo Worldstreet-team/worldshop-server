@@ -35,6 +35,7 @@ async function makeStore(name: string) {
   await createTestUser({ userId: ownerId });
   return storeService.createStore(ownerId, {
     name: `${name} Store`,
+    country: 'NG',
     state: 'Lagos',
     planCode: PLAN_CODE,
   });
@@ -336,6 +337,7 @@ describe('store subscriptions', () => {
     await expect(
       storeService.createStore(store.ownerId, {
         name: 'Another Store',
+        country: 'NG',
         state: 'Abuja',
         planCode: PLAN_CODE,
       }),

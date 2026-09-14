@@ -10,7 +10,19 @@ const brandingImageSchema = z
   .nullable()
   .optional();
 
-const stateSchema = z.string().min(2, 'State is required').max(60);
+/**
+ * ISO 3166-1 alpha-2, upper-cased. Not checked against a country list here:
+ * the client owns the location dataset, and an unknown-but-well-formed code
+ * costs nothing beyond an empty browse filter. `state` is the subdivision's
+ * display name inside that country, so it stays a free string.
+ */
+const countrySchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z]{2}$/, 'Country must be a two-letter ISO code')
+  .transform((v) => v.toUpperCase());
+
+const stateSchema = z.string().trim().min(2, 'State is required').max(60);
 
 const contactSchema = {
   phone: z
@@ -31,6 +43,7 @@ export const createMallSchema = z.object({
     .min(3, 'Mall name must be at least 3 characters')
     .max(60, 'Mall name must be at most 60 characters'),
   description: z.string().max(1000, 'Description must be at most 1000 characters').optional(),
+  country: countrySchema.default('NG'),
   state: stateSchema,
   city: z.string().max(60).optional(),
   address: z.string().max(200).optional(),
@@ -49,6 +62,7 @@ export const updateMallSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   logo: brandingImageSchema,
   banner: brandingImageSchema,
+  country: countrySchema.optional(),
   state: stateSchema.optional(),
   city: z.string().max(60).nullable().optional(),
   address: z.string().max(200).nullable().optional(),
@@ -67,6 +81,7 @@ export const createSubstoreSchema = z.object({
   description: z.string().max(1000).optional(),
   // Optional, unlike a personal store: a substore defaults to its mall's
   // location, which is where its counter physically is.
+  country: countrySchema.optional(),
   state: stateSchema.optional(),
   city: z.string().max(60).optional(),
   address: z.string().max(200).optional(),
@@ -84,6 +99,7 @@ export const updateSubstoreSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   logo: brandingImageSchema,
   banner: brandingImageSchema,
+  country: countrySchema.optional(),
   state: stateSchema.optional(),
   city: z.string().max(60).nullable().optional(),
   address: z.string().max(200).nullable().optional(),
@@ -103,6 +119,7 @@ export type SetFeaturedInput = z.infer<typeof setFeaturedSchema>;
 export const mallQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+  country: countrySchema.optional(),
   state: z.string().max(60).optional(),
 });
 

@@ -63,6 +63,7 @@ export const createListingSchema = z.object({
   variants: z.array(variantSchema).max(50).default([]),
 
   // Defaults to the store's location when omitted.
+  country: z.string().trim().regex(/^[A-Za-z]{2}$/).transform((v) => v.toUpperCase()).optional(),
   state: z.string().trim().max(60).optional(),
   city: z.string().trim().max(60).optional(),
 })
@@ -99,6 +100,7 @@ export const updateListingSchema = z.object({
   attributes: attributesSchema.optional(),
   customFields: customFieldsSchema.optional(),
   variants: z.array(variantSchema).max(50).optional(),
+  country: z.string().trim().regex(/^[A-Za-z]{2}$/).transform((v) => v.toUpperCase()).optional(),
   state: z.string().trim().max(60).nullable().optional(),
   city: z.string().trim().max(60).nullable().optional(),
 });
