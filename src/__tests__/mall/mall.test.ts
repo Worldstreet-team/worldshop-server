@@ -45,6 +45,7 @@ async function makeMall(name: string) {
   await createTestUser({ userId: ownerId });
   const mall = await mallService.createMall(ownerId, {
     name: `${name} Mall`,
+    country: 'NG',
     state: 'Lagos',
     planCode: PLAN_CODE,
   });
@@ -122,7 +123,7 @@ describe('malls', () => {
     expect(await mallService.getPublicMallBySlug(mall.slug)).toBeNull();
 
     await expect(
-      mallService.createMall(ownerId, { name: 'Second Mall', state: 'Lagos', planCode: PLAN_CODE }),
+      mallService.createMall(ownerId, { name: 'Second Mall', country: 'NG', state: 'Lagos', planCode: PLAN_CODE }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -131,13 +132,14 @@ describe('malls', () => {
 
     const store = await storeService.createStore(ownerId, {
       name: 'Both Personal Store',
+      country: 'NG',
       state: 'Lagos',
       planCode: 'test-standard',
     });
     expect(store.status).toBe('DRAFT');
 
     await expect(
-      storeService.createStore(ownerId, { name: 'Another', state: 'Lagos', planCode: 'test-standard' }),
+      storeService.createStore(ownerId, { name: 'Another', country: 'NG', state: 'Lagos', planCode: 'test-standard' }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -145,7 +147,7 @@ describe('malls', () => {
     const ownerId = `${PREFIX}wrongplan`;
     await createTestUser({ userId: ownerId });
     await expect(
-      mallService.createMall(ownerId, { name: 'Wrong Plan Mall', state: 'Lagos', planCode: 'test-standard' }),
+      mallService.createMall(ownerId, { name: 'Wrong Plan Mall', country: 'NG', state: 'Lagos', planCode: 'test-standard' }),
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -358,6 +360,7 @@ describe('malls', () => {
     await createTestUser({ userId: stranger });
     const strangerStore = await storeService.createStore(stranger, {
       name: 'Stranger Store',
+      country: 'NG',
       state: 'Lagos',
       planCode: 'test-standard',
     });

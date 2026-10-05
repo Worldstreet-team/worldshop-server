@@ -33,7 +33,7 @@ export const PUBLIC_STORE_SELECT = {
   id: true, name: true, slug: true, description: true, logo: true, banner: true,
   // Contact channels the vendor chose to publish
   phone: true, whatsapp: true, website: true,
-  state: true, city: true, address: true, openingHours: true,
+  country: true, state: true, city: true, address: true, openingHours: true,
   status: true, verificationTier: true, verifiedAt: true,
   avgRating: true, reviewCount: true, listingCount: true,
   responseRate: true, avgResponseMins: true,
@@ -111,6 +111,7 @@ export async function createStore(ownerId: string, input: CreateStoreInput) {
       whatsapp: input.whatsapp,
       email: input.email ?? profile.email,
       website: input.website,
+      country: input.country,
       state: input.state,
       city: input.city,
       address: input.address,
@@ -173,6 +174,7 @@ export async function updateStore(ownerId: string, input: UpdateStoreInput) {
       whatsapp: input.whatsapp,
       email: input.email,
       website: input.website,
+      country: input.country,
       state: input.state,
       city: input.city,
       address: input.address,
@@ -194,9 +196,10 @@ export async function getPublicStoreBySlug(slug: string): Promise<PublicStore | 
 }
 
 /** Browse: only stores currently paid up. */
-export async function listPublicStores(opts: { page: number; limit: number; state?: string }) {
+export async function listPublicStores(opts: { page: number; limit: number; country?: string; state?: string }) {
   const where: Prisma.StoreWhereInput = {
     status: VISIBLE_STATUSES,
+    ...(opts.country ? { country: opts.country } : {}),
     ...(opts.state ? { state: opts.state } : {}),
   };
 

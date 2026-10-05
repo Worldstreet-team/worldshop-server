@@ -101,6 +101,7 @@ async function makeMall(name: string, substoreCount = 2) {
           mallId: mall.id,
           name: `${name} Substore ${i}`,
           slug: `${SLUG}-mall-${name}-sub-${i}`,
+          country: 'NG',
           state: 'Lagos',
           status: 'ACTIVE',
         },

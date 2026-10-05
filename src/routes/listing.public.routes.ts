@@ -12,7 +12,7 @@ const router = Router();
 /**
  * GET /api/v1/listings
  * Public browse. Filters:
- *   categoryId, state, search, page, limit
+ *   categoryId, country, state, search, page, limit
  *   deals=1              — only listings on a live vendor-set deal, ending
  *                          soonest first
  *   attr.<Name>=<Value>  — faceted filter on the structured attribute layer,
@@ -40,6 +40,9 @@ router.get(
       page,
       limit,
       categoryId: typeof req.query.categoryId === 'string' ? req.query.categoryId : undefined,
+      country: typeof req.query.country === 'string' && /^[A-Za-z]{2}$/.test(req.query.country)
+        ? req.query.country.toUpperCase()
+        : undefined,
       state: typeof req.query.state === 'string' ? req.query.state : undefined,
       condition: typeof req.query.condition === 'string' ? req.query.condition : undefined,
       search: typeof req.query.search === 'string' ? req.query.search : undefined,

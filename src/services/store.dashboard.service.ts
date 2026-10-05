@@ -209,6 +209,7 @@ export async function getDashboard(ownerId: string) {
       status: store.status,
       verificationTier: store.verificationTier,
       publiclyVisible,
+      country: store.country,
       state: store.state,
       city: store.city,
     },

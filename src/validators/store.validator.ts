@@ -16,8 +16,20 @@ const brandingImageSchema = z
   .nullable()
   .optional();
 
-/** Nigerian states are the primary browse filter, so location is required. */
-const stateSchema = z.string().min(2, 'State is required').max(60);
+/**
+ * ISO 3166-1 alpha-2, upper-cased. Not checked against a country list here:
+ * the client owns the location dataset, and an unknown-but-well-formed code
+ * costs nothing beyond an empty browse filter. `state` is the subdivision's
+ * display name inside that country, so it stays a free string.
+ */
+const countrySchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z]{2}$/, 'Country must be a two-letter ISO code')
+  .transform((v) => v.toUpperCase());
+
+/** Buyers browse by country + state, so location is required. */
+const stateSchema = z.string().trim().min(2, 'State is required').max(60);
 
 const contactSchema = {
   phone: z
@@ -38,6 +50,7 @@ export const createStoreSchema = z.object({
     .min(3, 'Store name must be at least 3 characters')
     .max(60, 'Store name must be at most 60 characters'),
   description: z.string().max(1000, 'Description must be at most 1000 characters').optional(),
+  country: countrySchema.default('NG'),
   state: stateSchema,
   city: z.string().max(60).optional(),
   address: z.string().max(200).optional(),
@@ -59,6 +72,7 @@ export const updateStoreSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   logo: brandingImageSchema,
   banner: brandingImageSchema,
+  country: countrySchema.optional(),
   state: stateSchema.optional(),
   city: z.string().max(60).nullable().optional(),
   address: z.string().max(200).nullable().optional(),
@@ -73,6 +87,7 @@ export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;
 export const storeQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+  country: countrySchema.optional(),
   state: z.string().max(60).optional(),
 });
 

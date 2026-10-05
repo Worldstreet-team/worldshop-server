@@ -1,6 +1,6 @@
 {
   "name": "worldshop-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "WorldStreet marketplace API — stores, listings, subscriptions, chat, reviews and moderation.",
   "main": "index.js",
   "scripts": {
@@ -17,6 +17,7 @@
     "teardown": "npx ts-node scripts/marketplace-teardown.ts",
     "seed:plans": "npx ts-node scripts/seed-subscription-plans.ts",
     "backfill:store-kind": "npx ts-node scripts/backfill-store-kind.ts",
+    "backfill:country": "npx ts-node scripts/backfill-country.ts",
     "repair:substore-status": "npx ts-node scripts/repair-substore-status.ts",
     "delete:malls": "npx ts-node scripts/delete-malls.ts",
     "reset:credit": "npx ts-node scripts/reset-store-credit.ts",
