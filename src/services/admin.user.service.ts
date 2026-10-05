@@ -63,7 +63,9 @@ type UserRow = {
  * `passwordHash` is selected only to derive the status, and a spread would put
  * a bcrypt hash straight into an API response.
  */
-function toAdminUserDto(user: UserRow, inviteExpiresAt: Date | null) {
+type VendorStore = { name: string; status: string };
+
+function toAdminUserDto(user: UserRow, inviteExpiresAt: Date | null, store: VendorStore | null = null) {
   const adminStatus: AdminInviteStatus | null =
     user.role !== 'ADMIN'
       ? null
@@ -82,9 +84,27 @@ function toAdminUserDto(user: UserRow, inviteExpiresAt: Date | null) {
     role: user.role,
     createdAt: user.createdAt,
     adminStatus,
+    // Owning a personal store is what makes someone a vendor; there is no
+    // role or flag for it. Substores belong to malls and do not count.
+    isVendor: store !== null,
+    storeName: store?.name ?? null,
+    vendorStatus: store?.status ?? null,
     // Only meaningful while a setup link is outstanding.
     inviteExpiresAt: adminStatus === 'AWAITING_SETUP' ? inviteExpiresAt : null,
   };
+}
+
+/**
+ * Personal stores by owner, for the users on this page. A user has at most
+ * one (createStore enforces it), so a map by owner is enough.
+ */
+async function vendorStores(users: UserRow[]): Promise<Map<string, VendorStore>> {
+  if (users.length === 0) return new Map();
+  const stores = await prisma.store.findMany({
+    where: { ownerId: { in: users.map((u) => u.userId) }, kind: 'PERSONAL' },
+    select: { ownerId: true, name: true, status: true },
+  });
+  return new Map(stores.map((s) => [s.ownerId, { name: s.name, status: s.status }]));
 }
 
 /** The live setup link per user, for the admins on this page who lack a password. */
@@ -112,6 +132,17 @@ export async function listUsers(query: AdminUserListInput) {
 
   const where: Record<string, unknown> = {};
   if (query.role) where.role = query.role;
+  if (query.vendor !== undefined) {
+    // Store.ownerId is a plain string, not a relation, so Prisma cannot filter
+    // users by it in one query. Collect the owners first.
+    const owners = await prisma.store.findMany({
+      where: { kind: 'PERSONAL' },
+      select: { ownerId: true },
+      distinct: ['ownerId'],
+    });
+    const ids = owners.map((o) => o.ownerId);
+    where.userId = query.vendor ? { in: ids } : { notIn: ids };
+  }
   if (query.search) {
     where.OR = [
       { email: { contains: query.search, mode: 'insensitive' } },
@@ -131,10 +162,15 @@ export async function listUsers(query: AdminUserListInput) {
     prisma.userProfile.count({ where }),
   ]);
 
-  const invites = await pendingInvites(users as UserRow[]);
+  const [invites, stores] = await Promise.all([
+    pendingInvites(users as UserRow[]),
+    vendorStores(users as UserRow[]),
+  ]);
 
   return {
-    data: (users as UserRow[]).map((u) => toAdminUserDto(u, invites.get(u.userId) ?? null)),
+    data: (users as UserRow[]).map((u) =>
+      toAdminUserDto(u, invites.get(u.userId) ?? null, stores.get(u.userId) ?? null),
+    ),
     pagination: buildPagination(total, page, limit),
   };
 }

@@ -5,6 +5,9 @@ export const adminUserListSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().max(100).optional(),
   role: z.enum(['CUSTOMER', 'ADMIN']).optional(),
+  // true: owns a personal store; false: does not. Query strings are text, so
+  // z.coerce.boolean would read "false" as true.
+  vendor: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
 export const adminUserRoleSchema = z.object({
