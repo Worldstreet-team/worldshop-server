@@ -34,6 +34,7 @@ router.get('/me/reviews', requireAuth, requireStore, reviewController.listMine);
 router.get('/me/subscription', requireAuth, storeController.getMySubscription);
 router.post('/me/subscription/charge', requireAuth, storeController.chargeMySubscription);
 router.post('/me/subscription/cancel', requireAuth, storeController.cancelMySubscription);
+router.post('/me/subscription/resume', requireAuth, storeController.resumeMySubscription);
 
 // ─── Listings (owner) ───────────────────────────────────────────
 // requireStore, not requireVendor: owning a store is what makes someone a

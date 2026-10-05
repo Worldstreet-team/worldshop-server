@@ -34,6 +34,7 @@ router.patch('/me', requireAuth, validate(updateMallSchema), mallController.upda
 router.get('/me/subscription', requireAuth, mallController.getMySubscription);
 router.post('/me/subscription/charge', requireAuth, mallController.chargeMySubscription);
 router.post('/me/subscription/cancel', requireAuth, mallController.cancelMySubscription);
+router.post('/me/subscription/resume', requireAuth, mallController.resumeMySubscription);
 
 // Branding upload for the mall itself. The substore equivalent rides on the
 // substore's listing router below; the mall has no listings of its own, so it

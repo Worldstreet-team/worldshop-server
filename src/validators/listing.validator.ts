@@ -41,6 +41,46 @@ const variantSchema = z.object({
   images: z.array(z.record(z.string(), z.unknown())).max(8).optional(),
 });
 
+/** How far ahead a deal may end. Long enough for a sale, short enough that
+ * "deal" still means something to a buyer reading the home page. */
+export const MAX_DEAL_DAYS = 30;
+
+type DealShape = {
+  priceType?: string | null;
+  basePrice?: number | null;
+  compareAtPrice?: number | null;
+  dealEndsAt?: Date | null;
+};
+
+/**
+ * Why a listing's deal is invalid, or null when it is fine (or there is no
+ * deal). Shared by create, where it runs on the input, and update, where it
+ * runs on the input merged over the stored listing.
+ */
+export function dealProblem(v: DealShape, now = new Date()): { path: string; message: string } | null {
+  const hasWas = v.compareAtPrice != null;
+  const hasEnd = v.dealEndsAt != null;
+  if (!hasWas && !hasEnd) return null;
+  if (!hasWas) return { path: 'compareAtPrice', message: 'Enter the price before the deal' };
+  if (!hasEnd) return { path: 'dealEndsAt', message: 'Choose when the deal ends' };
+  if ((v.priceType ?? 'FIXED') !== 'FIXED') {
+    return { path: 'compareAtPrice', message: 'Only a fixed price can be on deal' };
+  }
+  if (v.basePrice == null || v.compareAtPrice! <= v.basePrice) {
+    return { path: 'compareAtPrice', message: 'The price before the deal must be higher than the deal price' };
+  }
+  if (v.dealEndsAt! <= now) return { path: 'dealEndsAt', message: 'The deal must end in the future' };
+  if (v.dealEndsAt!.getTime() - now.getTime() > MAX_DEAL_DAYS * 86_400_000) {
+    return { path: 'dealEndsAt', message: `A deal can run for at most ${MAX_DEAL_DAYS} days` };
+  }
+  return null;
+}
+
+const dealFields = {
+  compareAtPrice: z.number().positive().nullable().optional(),
+  dealEndsAt: z.coerce.date().nullable().optional(),
+};
+
 export const createListingSchema = z.object({
   name: z.string().trim().min(3, 'Product name must be at least 3 characters').max(120),
   description: z.string().trim().min(20, 'Describe the product in at least 20 characters').max(5000),
@@ -51,6 +91,7 @@ export const createListingSchema = z.object({
   basePrice: z.number().nonnegative().optional(),
   maxPrice: z.number().nonnegative().optional(),
   isNegotiable: z.boolean().default(true),
+  ...dealFields,
 
   condition: z.enum(['NEW', 'USED', 'REFURBISHED']).optional(),
   brand: z.string().trim().max(60).optional(),
@@ -77,6 +118,8 @@ export const createListingSchema = z.object({
         ctx.addIssue({ code: 'custom', path: ['maxPrice'], message: 'Maximum price cannot be below the minimum' });
       }
     }
+    const deal = dealProblem(v);
+    if (deal) ctx.addIssue({ code: 'custom', path: [deal.path], message: deal.message });
   });
 
 export type CreateListingInput = z.infer<typeof createListingSchema>;
@@ -91,6 +134,8 @@ export const updateListingSchema = z.object({
   basePrice: z.number().nonnegative().nullable().optional(),
   maxPrice: z.number().nonnegative().nullable().optional(),
   isNegotiable: z.boolean().optional(),
+  // null clears the deal; checked against the stored listing in updateListing.
+  ...dealFields,
   condition: z.enum(['NEW', 'USED', 'REFURBISHED']).nullable().optional(),
   brand: z.string().trim().max(60).nullable().optional(),
   material: z.string().trim().max(60).nullable().optional(),

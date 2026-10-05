@@ -5,6 +5,8 @@ import * as mallService from '../services/mall.service';
 import * as mallSubscriptionService from '../services/mall.subscription.service';
 import * as subscriptionService from '../services/subscription.service';
 import { mallQuerySchema } from '../validators/mall.validator';
+import { getWalletUsdBalance } from '../services/payment/providers/wallet.provider';
+import { globalLog as logger } from '../configs/loggerConfig';
 
 function requireUserId(req: Request): string {
   if (!req.user?.id) throw createError(401, 'Authentication required');
@@ -29,7 +31,18 @@ export const create = catchAsync(async (req: Request, res: Response) => {
 /** GET /api/v1/malls/me */
 export const getMine = catchAsync(async (req: Request, res: Response) => {
   const mall = await mallService.getMyMall(requireUserId(req));
-  res.status(200).json({ success: true, data: mall });
+
+  // The owner's dollar balance, so the dashboard can say "top up $X" before
+  // attempting a charge instead of after it fails. null = the wallet service
+  // could not be reached, which the client must read as unknown, not empty.
+  const wallet = await getWalletUsdBalance(mall.ownerId)
+    .then((b) => ({ currency: 'USD', availableMinor: b.availableMinor, lockedMinor: b.lockedMinor }))
+    .catch((err) => {
+      logger.warn('[Mall] Wallet balance unavailable', { mallId: mall.id, error: (err as Error).message });
+      return null;
+    });
+
+  res.status(200).json({ success: true, data: { ...mall, wallet } });
 });
 
 /** PATCH /api/v1/malls/me */
@@ -90,6 +103,18 @@ export const cancelMySubscription = catchAsync(async (req: Request, res: Respons
     success: true,
     data: subscription,
     message: 'Auto-renewal stopped. Your mall stays visible until the end of the paid period.',
+  });
+});
+
+/** POST /api/v1/malls/me/subscription/resume — see the store equivalent. */
+export const resumeMySubscription = catchAsync(async (req: Request, res: Response) => {
+  const mall = await mallService.getMyMall(requireUserId(req));
+  const subscription = await mallSubscriptionService.resumeMallSubscription(mall.id);
+
+  res.status(200).json({
+    success: true,
+    data: subscription,
+    message: 'Auto-renewal is back on. Your next payment is due at the end of this period.',
   });
 });
 

@@ -46,7 +46,8 @@ function reconcileSubstores(): Promise<void> {
 
 reconcileSubstores();
 
-setInterval(() => {
+/** Malls, then substore reconciliation, then stores. */
+function runSweeps(): void {
   // Malls first: a lapsed mall hides its substores before the store sweep
   // runs. Not correctness-critical (substores have no subscriptions of their
   // own), just tidier ordering. Both sweeps are idempotent per period.
@@ -64,4 +65,13 @@ setInterval(() => {
         });
       });
     });
-}, RENEWAL_SWEEP_MS);
+}
+
+// Once shortly after boot, then on the timer. With only the timer, the first
+// pass came a full interval after each start, so a service redeployed more
+// often than that never renewed or expired anything. The delay lets the
+// server finish starting before the first wallet calls; charges are
+// idempotent per period, so a pass that overlaps another instance's is safe.
+const BOOT_SWEEP_DELAY_MS = 30 * 1000;
+setTimeout(runSweeps, BOOT_SWEEP_DELAY_MS);
+setInterval(runSweeps, RENEWAL_SWEEP_MS);

@@ -106,6 +106,22 @@ export const cancelMySubscription = catchAsync(async (req: Request, res: Respons
   });
 });
 
+/**
+ * POST /api/v1/stores/me/subscription/resume
+ * Turns auto-renewal back on after a cancellation, while the paid period is
+ * still running. Charges nothing now.
+ */
+export const resumeMySubscription = catchAsync(async (req: Request, res: Response) => {
+  const store = await storeService.getMyStore(requireUserId(req));
+  const subscription = await subscriptionService.resumeSubscription(store.id);
+
+  res.status(200).json({
+    success: true,
+    data: subscription,
+    message: 'Auto-renewal is back on. Your next payment is due at the end of this period.',
+  });
+});
+
 /** GET /api/v1/stores — public directory of paid-up stores */
 export const listPublic = catchAsync(async (req: Request, res: Response) => {
   const query = storeQuerySchema.parse(req.query);

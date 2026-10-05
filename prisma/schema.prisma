@@ -216,6 +216,14 @@ model Product {
   condition     String?          // NEW, USED, REFURBISHED
   priceType     PriceType        @default(FIXED)
   maxPrice      Float?           // when priceType = RANGE
+  // ── Deal ──
+  // Set by the vendor: the price before the reduction (above basePrice) and
+  // when the offer stops. FIXED prices only, at most 30 days out (see
+  // dealProblem in the listing validator). Public reads drop both once
+  // dealEndsAt passes, so an ended deal is just a listing again and nothing
+  // has to clear it.
+  compareAtPrice Float?
+  dealEndsAt     DateTime?
   isNegotiable  Boolean          @default(true)
   state         String?          // falls back to the store's location
   city          String?
@@ -247,6 +255,8 @@ model Product {
   @@index([categoryId])
   @@index([isActive])
   @@index([storeId])
+  // The home page's "ending soon" rail sorts live deals by this.
+  @@index([dealEndsAt])
 }
 
 model ProductVariant {
@@ -567,7 +577,7 @@ model MallSubscription {
   @@index([planId])
 }
 
-// One row per mall billing attempt. Wallet-only at launch (no credit ledger
+// One row per mall billing period. Wallet-only at launch (no credit ledger
 // for malls); chargeRef mallsub_<mallId>_<periodStart ISO> keeps refs disjoint
 // from store charges so a replay can never collide across the two systems.
 model MallSubscriptionCharge {
@@ -587,6 +597,7 @@ model MallSubscriptionCharge {
   failureReason  String?
 
   chargeRef      String           @unique             // mallsub_<mallId>_<periodStart ISO>
+  attempts       Int              @default(0)        // see SubscriptionCharge.attempts
   walletRef      String?
   chargedAt      DateTime?
 
@@ -702,8 +713,9 @@ model Subscription {
   @@index([planId])
 }
 
-// One row per billing attempt. `chargeRef` is derived deterministically from
-// (storeId, periodStart) so a retried sweep can never charge a vendor twice.
+// One row per billing period. `chargeRef` is derived deterministically from
+// (storeId, periodStart) so a retried sweep can never charge a vendor twice;
+// retries of the same period reuse the row and bump `attempts`.
 model SubscriptionCharge {
   id             String       @id @default(auto()) @map("_id") @db.ObjectId
   subscriptionId String       @db.ObjectId
@@ -724,6 +736,10 @@ model SubscriptionCharge {
   failureReason  String?
 
   chargeRef      String       @unique             // sub_<storeId>_<periodStart ISO>
+  // Wallet attempts made for this period. The row stays one per period; each
+  // retry gets its own wallet idempotency key and credit reference from this,
+  // so a declined attempt is never replayed as the answer to the next one.
+  attempts       Int          @default(0)
   walletRef      String?                          // wallet-side reference once charged
   chargedAt      DateTime?
 

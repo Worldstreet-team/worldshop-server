@@ -400,4 +400,97 @@ describe('store subscriptions', () => {
     expect(after?.cancelledAt).toBeNull();
     expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('ACTIVE');
   });
+
+  it('bills a grace payment from the unpaid period end, on one charge row', async () => {
+    walletSucceeds();
+    const store = await makeStore('gracebill');
+    await subscriptionService.chargeSubscription(store.id);
+
+    const lapsedEnd = new Date(Date.now() - 2 * 86_400_000);
+    await prisma.subscription.update({
+      where: { storeId: store.id },
+      data: { currentPeriodEnd: lapsedEnd },
+    });
+
+    // Two declined attempts in grace: the same period, so the same row.
+    walletDeclines();
+    await subscriptionService.runRenewalSweep();
+    await subscriptionService.runRenewalSweep();
+    const failed = await prisma.subscriptionCharge.findMany({
+      where: { storeId: store.id, status: 'FAILED' },
+    });
+    expect(failed).toHaveLength(1);
+    expect(failed[0].attempts).toBe(2);
+
+    // Each attempt used its own wallet key, so a decline is never replayed.
+    const keys = chargeWalletUsd.mock.calls.map(([opts]) => opts.idempotencyRef ?? opts.chargeRef);
+    expect(new Set(keys).size).toBe(keys.length);
+
+    // Paying now covers the grace days: the period starts where the unpaid one ended.
+    walletSucceeds();
+    await subscriptionService.chargeSubscription(store.id);
+    const after = await prisma.subscription.findUnique({ where: { storeId: store.id } });
+    expect(after?.status).toBe('ACTIVE');
+    expect(after?.currentPeriodStart?.getTime()).toBe(lapsedEnd.getTime());
+  });
+
+  it('never spends credit it did not debit when a period is retried', async () => {
+    walletSucceeds();
+    const store = await makeStore('creditretry');
+    await subscriptionService.chargeSubscription(store.id);
+    await prisma.subscription.update({
+      where: { storeId: store.id },
+      data: { currentPeriodEnd: new Date(Date.now() - 1000) },
+    });
+    await grantCredit(store.id, 200); // $2 of the $5
+
+    walletDeclines();
+    await subscriptionService.runRenewalSweep(); // debits $2, wallet declines, $2 returned
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.creditMinor).toBe(200);
+
+    walletSucceeds();
+    await subscriptionService.chargeSubscription(store.id);
+
+    const paid = await prisma.subscriptionCharge.findFirst({
+      where: { storeId: store.id, status: 'PAID' },
+      orderBy: { createdAt: 'desc' },
+    });
+    // The credit was really taken this time, and the wallet paid the rest.
+    expect(paid).toMatchObject({ creditMinor: 200, walletMinor: 300 });
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.creditMinor).toBe(0);
+  });
+
+  it('resumes auto-renewal for free inside the paid period, but not after it', async () => {
+    walletSucceeds();
+    const store = await makeStore('resumes');
+    await subscriptionService.chargeSubscription(store.id);
+    await subscriptionService.cancelSubscription(store.id);
+
+    await subscriptionService.resumeSubscription(store.id);
+    const resumed = await prisma.subscription.findUnique({ where: { storeId: store.id } });
+    expect(resumed).toMatchObject({ status: 'ACTIVE', autoRenew: true, cancelledAt: null });
+    expect(chargeWalletUsd).toHaveBeenCalledTimes(1); // only the original payment
+
+    await subscriptionService.cancelSubscription(store.id);
+    await prisma.subscription.update({
+      where: { storeId: store.id },
+      data: { currentPeriodEnd: new Date(Date.now() - 1000) },
+    });
+    await expect(subscriptionService.resumeSubscription(store.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('expires an ACTIVE store with auto-renewal off once its period ends', async () => {
+    walletSucceeds();
+    const store = await makeStore('norenew');
+    await subscriptionService.chargeSubscription(store.id);
+    await prisma.subscription.update({
+      where: { storeId: store.id },
+      data: { autoRenew: false, currentPeriodEnd: new Date(Date.now() - 1000) },
+    });
+
+    await subscriptionService.runRenewalSweep();
+
+    expect((await prisma.store.findUnique({ where: { id: store.id } }))?.status).toBe('EXPIRED');
+    expect((await prisma.subscription.findUnique({ where: { storeId: store.id } }))?.status).toBe('LAPSED');
+  });
 });

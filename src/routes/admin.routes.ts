@@ -4,14 +4,17 @@ import * as adminCategoryController from '../controllers/admin.category.controll
 import * as marketplaceReviewController from '../controllers/marketplace.review.controller';
 import * as reportController from '../controllers/report.controller';
 import * as adminUserController from '../controllers/admin.user.controller';
+import * as adminBillingController from '../controllers/admin.billing.controller';
 import * as uploadController from '../controllers/upload.controller';
 import { uploadProductImages, handleMulterError } from '../middlewares/upload.middleware';
 
 /**
  * Admin surface for the marketplace. Orders, inventory, product CRUD, vendor
  * management, withdrawals and commission settings were ecommerce features and
- * are gone — with money off-platform, the admin's levers are the taxonomy, the
- * report queue, review moderation and user roles.
+ * are gone — buyer money is off-platform. What the platform does charge is the
+ * vendor subscription, so the admin's levers are the taxonomy, the report
+ * queue, review moderation, user roles, subscription pricing and the revenue
+ * it brings in.
  */
 const router = Router();
 
@@ -59,5 +62,12 @@ router.patch('/users/:id/role', adminUserController.updateUserRole);
 // For an admin whose setup link was lost or has expired; without it the only
 // remedy is demote-then-promote.
 router.post('/users/:id/resend-setup', adminUserController.resendSetup);
+
+// ─── Billing ────────────────────────────────────────────────────
+// Subscription plans (prices vendors and malls pay) and the revenue they bring.
+router.get('/billing/plans', adminBillingController.listPlans);
+router.post('/billing/plans', adminBillingController.createPlan);
+router.patch('/billing/plans/:id', adminBillingController.updatePlan);
+router.get('/billing/revenue', adminBillingController.revenue);
 
 export default router;

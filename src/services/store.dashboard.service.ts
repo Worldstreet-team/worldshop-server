@@ -23,7 +23,7 @@ import { signR2Key } from '../utils/signUrl';
 const DAY_MS = 86_400_000;
 
 export type DashboardAlert = {
-  type: 'ACTIVATE' | 'RENEWAL_DUE' | 'PAYMENT_FAILED' | 'EXPIRED' | 'UNREAD' | 'DRAFTS' | 'UNREPLIED_REVIEWS' | 'SUSPENDED';
+  type: 'ACTIVATE' | 'RENEWAL_DUE' | 'PAYMENT_FAILED' | 'EXPIRED' | 'CANCELLED' | 'UNREAD' | 'DRAFTS' | 'UNREPLIED_REVIEWS' | 'SUSPENDED';
   severity: 'info' | 'warning' | 'critical';
   message: string;
 };
@@ -148,6 +148,23 @@ export async function getDashboard(ownerId: string) {
       severity: 'critical',
       message: 'Your subscription lapsed and your listings are hidden. Pay to restore them — nothing was deleted.',
     });
+  } else if (subscription?.status === 'CANCELLED') {
+    // Without these a vendor who cancelled saw no alert at all, and once the
+    // period ran out had no way back from the dashboard. Inside the period
+    // the way back is resuming (free); after it, paying again.
+    alerts.push(
+      daysRemaining !== null && daysRemaining > 0 && publiclyVisible
+        ? {
+            type: 'CANCELLED',
+            severity: 'warning',
+            message: `You cancelled auto-renewal. Your store stays visible for ${daysRemaining} more day(s), then goes offline.`,
+          }
+        : {
+            type: 'EXPIRED',
+            severity: 'critical',
+            message: 'Your subscription was cancelled and your listings are hidden. Pay to reactivate them — nothing was deleted.',
+          },
+    );
   } else if (subscription?.status === 'ACTIVE' && daysRemaining !== null && daysRemaining <= 5) {
     alerts.push({
       type: 'RENEWAL_DUE',
@@ -210,6 +227,7 @@ export async function getDashboard(ownerId: string) {
             amountMinor: subscription.plan.amountMinor,
             currency: subscription.plan.currency,
             intervalMonths: subscription.plan.intervalMonths,
+            intervalDays: subscription.plan.intervalDays,
             listingLimit: subscription.plan.listingLimit,
           },
           // Non-withdrawable: it exists to pay for visibility, not as savings.

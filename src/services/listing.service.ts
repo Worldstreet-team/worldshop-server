@@ -34,6 +34,7 @@ import type {
   UpdateListingInput,
   ListingQueryInput,
 } from '../validators/listing.validator';
+import { dealProblem } from '../validators/listing.validator';
 
 /** Statuses that make a store's published listings visible to buyers. */
 const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
@@ -92,6 +93,19 @@ function toJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
+/**
+ * Drops a deal that has ended. Public reads pass listings through this, so
+ * an expired deal stops showing a was-price the moment it ends, with no job
+ * needed to clear the stored fields.
+ */
+export function withLiveDeal<T extends { compareAtPrice?: number | null; dealEndsAt?: Date | null }>(
+  listing: T,
+  now = new Date(),
+): T {
+  if (listing.dealEndsAt && listing.dealEndsAt > now && listing.compareAtPrice != null) return listing;
+  return { ...listing, compareAtPrice: null, dealEndsAt: null };
+}
+
 export async function createListing(
   store: { id: string; state: string; city: string | null },
   input: CreateListingInput,
@@ -116,6 +130,8 @@ export async function createListing(
       basePrice: input.basePrice ?? 0,
       maxPrice: input.maxPrice,
       isNegotiable: input.isNegotiable,
+      compareAtPrice: input.compareAtPrice ?? null,
+      dealEndsAt: input.dealEndsAt ?? null,
 
       condition: input.condition,
       brand: input.brand,
@@ -161,6 +177,28 @@ export async function updateListing(storeId: string, listingId: string, input: U
     throw createError(403, 'This listing was removed by an administrator and cannot be edited');
   }
 
+  // A deal is only valid against the price it reduces, so it is checked on
+  // the input merged over what is stored. An ended deal left on the record
+  // is no deal at all: editing something else must not fail on it.
+  const now = new Date();
+  const touchesDeal = input.compareAtPrice !== undefined || input.dealEndsAt !== undefined;
+  const touchesPrice = input.basePrice !== undefined || input.priceType !== undefined;
+  const liveDeal = !!listing.dealEndsAt && listing.dealEndsAt > now && listing.compareAtPrice != null;
+  if (touchesDeal || (touchesPrice && liveDeal)) {
+    const problem = dealProblem(
+      {
+        priceType: input.priceType ?? listing.priceType,
+        basePrice: input.basePrice !== undefined ? input.basePrice : listing.basePrice,
+        compareAtPrice: input.compareAtPrice !== undefined ? input.compareAtPrice : listing.compareAtPrice,
+        dealEndsAt: input.dealEndsAt !== undefined ? input.dealEndsAt : listing.dealEndsAt,
+      },
+      now,
+    );
+    if (problem) {
+      throw createError(400, problem.message);
+    }
+  }
+
   const categoryId = input.categoryId ?? listing.categoryId;
   if (input.categoryId) await assertLeafCategory(input.categoryId);
   if (input.attributes && categoryId) await assertKnownAttributes(categoryId, input.attributes);
@@ -182,6 +220,8 @@ export async function updateListing(storeId: string, listingId: string, input: U
       basePrice: input.basePrice ?? undefined,
       maxPrice: input.maxPrice,
       isNegotiable: input.isNegotiable,
+      compareAtPrice: input.compareAtPrice,
+      dealEndsAt: input.dealEndsAt,
       condition: input.condition,
       brand: input.brand,
       material: input.material,
@@ -398,7 +438,7 @@ export async function getPublicListing(idOrSlug: string) {
     .update({ where: { id: listing.id }, data: { viewCount: { increment: 1 } } })
     .catch(() => undefined);
 
-  const signed = await signProductRecord(listing);
+  const signed = await signProductRecord(withLiveDeal(listing));
   if (signed.store) signed.store = await signStoreBranding(signed.store);
   return signed;
 }
@@ -429,7 +469,7 @@ export async function listStoreListings(
     prisma.product.count({ where }),
   ]);
 
-  return { listings: await signProductRecords(listings), total };
+  return { listings: await signProductRecords(listings.map((l) => withLiveDeal(l))), total };
 }
 
 /** Public browse. Both gates enforced here, in one place. */
@@ -446,7 +486,10 @@ export async function listPublicListings(query: {
   condition?: string;
   /** Attribute facets, e.g. { Size: 'XL' } — only matches the structured layer. */
   attributes?: Record<string, string>;
+  /** Only listings a vendor has put on deal, soonest-ending first. */
+  deals?: boolean;
 }) {
+  const now = new Date();
   const where: Prisma.ProductWhereInput = {
     status: 'PUBLISHED',
     store: { is: { status: VISIBLE_STORE_STATUSES } },
@@ -454,6 +497,9 @@ export async function listPublicListings(query: {
     ...(query.state ? { state: query.state } : {}),
     ...(query.condition ? { condition: query.condition } : {}),
     ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
+    // `gt` rather than `not: null` on both: on Mongo a field that was never
+    // set is neither null nor not-null to Prisma, and comparisons skip it.
+    ...(query.deals ? { compareAtPrice: { gt: 0 }, dealEndsAt: { gt: now } } : {}),
     ...(query.attributes && Object.keys(query.attributes).length
       ? {
           AND: Object.entries(query.attributes).map(([name, value]) => ({
@@ -471,12 +517,14 @@ export async function listPublicListings(query: {
         category: { select: { id: true, name: true, slug: true } },
         store: { select: { id: true, name: true, slug: true, state: true, verificationTier: true } },
       },
-      orderBy: [{ isFeatured: 'desc' }, { publishedAt: 'desc' }],
+      orderBy: query.deals
+        ? [{ dealEndsAt: 'asc' }, { publishedAt: 'desc' }]
+        : [{ isFeatured: 'desc' }, { publishedAt: 'desc' }],
       skip: (query.page - 1) * query.limit,
       take: query.limit,
     }),
     prisma.product.count({ where }),
   ]);
 
-  return { listings: await signProductRecords(listings), total };
+  return { listings: await signProductRecords(listings.map((l) => withLiveDeal(l, now))), total };
 }

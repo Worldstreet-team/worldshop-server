@@ -21,7 +21,7 @@ import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { globalLog as logger } from '../configs/loggerConfig';
 import { chargeWalletUsd } from './payment/providers/wallet.provider';
-import { addInterval, getPlanByCode } from './subscription.service';
+import { addInterval, attemptRef, getPlanByCode, nextPeriodStart } from './subscription.service';
 import type { Prisma } from '../../generated/prisma';
 
 export const DEFAULT_MALL_PLAN_CODE = process.env.DEFAULT_MALL_PLAN_CODE || 'mall-standard';
@@ -120,12 +120,10 @@ export async function chargeMallSubscription(
     return { charged: true, alreadyPaid: true, periodEnd: subscription.currentPeriodEnd };
   }
 
-  // A renewal extends from the current period end; a first (or lapsed) payment
-  // starts now.
-  const periodStart =
-    subscription.currentPeriodEnd && subscription.currentPeriodEnd > now
-      ? subscription.currentPeriodEnd
-      : now;
+  // Same rule as stores (see nextPeriodStart): a renewal or a payment in
+  // GRACE bills from the end of the unpaid period, so grace is not free and
+  // hourly retries stay on one charge row.
+  const periodStart = nextPeriodStart(subscription, plan, now);
   const periodEnd = addInterval(periodStart, plan);
   const chargeRef = buildChargeRef(mallId, periodStart);
 
@@ -148,10 +146,16 @@ export async function chargeMallSubscription(
       },
     }));
 
+  // A retry bills the price the period was first charged at; see the store
+  // version. Each attempt gets its own wallet key so a decline is not replayed.
+  const amountMinor = charge.amountMinor;
+  const attempt = charge.attempts;
+
   const result = await chargeWalletUsd({
     userId: mall.ownerId,
-    amountMinor: plan.amountMinor,
+    amountMinor,
     chargeRef,
+    idempotencyRef: attemptRef(chargeRef, attempt),
     description: `WorldShop mall subscription — ${mall.name} (${plan.name})`,
     metadata: {
       mallId,
@@ -172,7 +176,12 @@ export async function chargeMallSubscription(
     await prisma.$transaction([
       prisma.mallSubscriptionCharge.update({
         where: { id: charge.id },
-        data: { status: 'FAILED', failureCode: result.code, failureReason: result.message },
+        data: {
+          status: 'FAILED',
+          failureCode: result.code,
+          failureReason: result.message,
+          attempts: attempt + 1,
+        },
       }),
       prisma.mallSubscription.update({
         where: { id: subscription.id },
@@ -198,7 +207,7 @@ export async function chargeMallSubscription(
       data: {
         status: 'PAID',
         walletRef: result.walletRef,
-        walletMinor: plan.amountMinor,
+        walletMinor: amountMinor,
         chargedAt: new Date(),
       },
     }),
@@ -226,7 +235,7 @@ export async function chargeMallSubscription(
   logger.info('[MallSubscription] Charged', {
     mallId,
     chargeRef,
-    amountMinor: plan.amountMinor,
+    amountMinor,
     periodEnd: periodEnd.toISOString(),
   });
 
@@ -244,6 +253,28 @@ export async function cancelMallSubscription(mallId: string) {
   return prisma.mallSubscription.update({
     where: { id: subscription.id },
     data: { autoRenew: false, cancelledAt: new Date(), status: 'CANCELLED' },
+  });
+}
+
+/**
+ * Undoes a cancellation while the paid period is still running; see
+ * resumeSubscription in the store service.
+ */
+export async function resumeMallSubscription(mallId: string) {
+  const subscription = await prisma.mallSubscription.findUnique({ where: { mallId } });
+  if (!subscription) throw createError(404, 'This mall has no subscription');
+
+  if (subscription.status !== 'CANCELLED') {
+    if (subscription.autoRenew) return subscription;
+    throw createError(409, 'Auto-renewal cannot be turned back on for this subscription');
+  }
+  if (!subscription.currentPeriodEnd || subscription.currentPeriodEnd <= new Date()) {
+    throw createError(409, 'Your paid period has ended. Pay to reactivate your mall.');
+  }
+
+  return prisma.mallSubscription.update({
+    where: { id: subscription.id },
+    data: { status: 'ACTIVE', autoRenew: true, cancelledAt: null },
   });
 }
 
@@ -278,6 +309,14 @@ export async function runMallRenewalSweep(): Promise<MallSweepReport> {
           currentPeriodEnd: { lte: now },
           mall: { is: { status: { in: ['ACTIVE', 'GRACE'] } } },
         },
+        // ACTIVE with auto-renewal off is never charged below; see the store
+        // sweep for why this clause exists.
+        {
+          status: 'ACTIVE',
+          autoRenew: false,
+          currentPeriodEnd: { lte: now },
+          mall: { is: { status: { in: ['ACTIVE', 'GRACE'] } } },
+        },
       ],
     },
     select: { id: true, mallId: true, status: true },
@@ -286,8 +325,8 @@ export async function runMallRenewalSweep(): Promise<MallSweepReport> {
   for (const sub of expired) {
     await prisma.$transaction([
       // A CANCELLED subscription stays CANCELLED (so the charge path still
-      // treats a later payment as a resubscribe); only GRACE becomes LAPSED.
-      ...(sub.status === 'GRACE'
+      // treats a later payment as a resubscribe); GRACE and ACTIVE lapse.
+      ...(sub.status === 'GRACE' || sub.status === 'ACTIVE'
         ? [prisma.mallSubscription.update({ where: { id: sub.id }, data: { status: 'LAPSED' } })]
         : []),
       // Guarded like the paid path: never overwrite SUSPENDED/BANNED.

@@ -217,10 +217,16 @@ export async function chargeWalletUsd(opts: {
   userId: string;
   amountMinor: number;
   chargeRef: string;
+  /**
+   * Key for this attempt, when it differs from the period's chargeRef. A retry
+   * after a decline needs a fresh key: under the old one the wallet may replay
+   * the declined hold instead of trying again with the vendor's new balance.
+   */
+  idempotencyRef?: string;
   description: string;
   metadata?: Record<string, unknown>;
 }): Promise<WalletChargeResult> {
-  const idempotencyKey = `worldshop:${opts.chargeRef}`;
+  const idempotencyKey = `worldshop:${opts.idempotencyRef ?? opts.chargeRef}`;
 
   const held = await walletCall<{ hold: WalletHold }>(
     'POST',
