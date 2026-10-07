@@ -9,6 +9,7 @@ import taskRoutes from './routes/taskRoutes';
 import profileRoutes from './routes/profile.routes';
 import categoryRoutes from './routes/category.routes';
 import adminRoutes from './routes/admin.routes';
+import fxRoutes from './routes/fx.routes';
 import marketplaceStoreRoutes from './routes/marketplace.store.routes';
 import mallRoutes from './routes/mall.routes';
 import listingPublicRoutes from './routes/listing.public.routes';
@@ -96,6 +97,7 @@ app.use('/api/v1/conversations', chatRoutes);
 app.use('/api/v1/reviews', marketplaceReviewRoutes);
 app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/fx', fxRoutes);
 
 // Error handlers
 Sentry.setupExpressErrorHandler(app); // sentry error handler middleware
