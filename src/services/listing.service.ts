@@ -18,6 +18,7 @@
  *   - `customFields` — free-form rows the vendor invents per product. Shown as
  *                      a spec table, never used as a filter.
  */
+import { randomBytes } from 'node:crypto';
 import createError from 'http-errors';
 import prisma from '../configs/prismaConfig';
 import { slugify } from '../utils/slugify';
@@ -39,14 +40,30 @@ import { dealProblem } from '../validators/listing.validator';
 /** Statuses that make a store's published listings visible to buyers. */
 const VISIBLE_STORE_STATUSES: Prisma.EnumStoreStatusFilter = { in: ['ACTIVE', 'GRACE'] };
 
-async function buildUniqueSlug(name: string): Promise<string> {
+/**
+ * A free slug for a new listing. On a collision the seller's store slug is
+ * appended, and only if that is taken too (the same store reusing a title) a
+ * short random tail.
+ *
+ * This used to count up (-2, -3, …). A counter says "duplicate" in the URL
+ * and tells the buyer nothing, and two sellers listing the same product name
+ * is normal on a marketplace. Existing slugs are left alone: they are links
+ * people have shared.
+ */
+async function buildUniqueSlug(name: string, storeSlug?: string): Promise<string> {
   const base = slugify(name) || 'listing';
-  for (let suffix = 0; suffix < 50; suffix += 1) {
-    const candidate = suffix === 0 ? base : `${base}-${suffix + 1}`;
-    const taken = await prisma.product.findUnique({ where: { slug: candidate }, select: { id: true } });
-    if (!taken) return candidate;
+  const isFree = async (candidate: string) =>
+    !(await prisma.product.findUnique({ where: { slug: candidate }, select: { id: true } }));
+
+  if (await isFree(base)) return base;
+  const owned = storeSlug ? `${base}-${storeSlug}` : base;
+  if (owned !== base && (await isFree(owned))) return owned;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = `${owned}-${randomBytes(3).toString('hex')}`;
+    if (await isFree(candidate)) return candidate;
   }
-  return `${base}-${Date.now()}`;
+  return `${owned}-${Date.now().toString(36)}`;
 }
 
 /**
@@ -107,13 +124,13 @@ export function withLiveDeal<T extends { compareAtPrice?: number | null; dealEnd
 }
 
 export async function createListing(
-  store: { id: string; country: string; state: string; city: string | null },
+  store: { id: string; slug?: string; country: string; state: string; city: string | null },
   input: CreateListingInput,
 ) {
   await assertLeafCategory(input.categoryId);
   await assertKnownAttributes(input.categoryId, input.attributes);
 
-  const slug = await buildUniqueSlug(input.name);
+  const slug = await buildUniqueSlug(input.name, store.slug);
 
   return prisma.product.create({
     data: {

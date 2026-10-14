@@ -201,7 +201,11 @@ export async function listPublicStores(opts: { page: number; limit: number; coun
     status: VISIBLE_STATUSES,
     // A store with nothing live is a dead end from the directory. It stays
     // reachable by its own link, and shows here once it publishes a listing.
-    listingCount: { gt: 0 },
+    // Asked of the listings themselves, not Store.listingCount: that counter
+    // only refreshes through the listing service, and listings removed any
+    // other way (a script, the database) leave it behind. One store showed
+    // "1 listing" on its card and an empty shop behind it.
+    listings: { some: { status: 'PUBLISHED' } },
     ...(opts.country ? { country: opts.country } : {}),
     ...(opts.state ? { state: opts.state } : {}),
   };
