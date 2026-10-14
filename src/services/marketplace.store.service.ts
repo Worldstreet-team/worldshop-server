@@ -199,6 +199,9 @@ export async function getPublicStoreBySlug(slug: string): Promise<PublicStore | 
 export async function listPublicStores(opts: { page: number; limit: number; country?: string; state?: string }) {
   const where: Prisma.StoreWhereInput = {
     status: VISIBLE_STATUSES,
+    // A store with nothing live is a dead end from the directory. It stays
+    // reachable by its own link, and shows here once it publishes a listing.
+    listingCount: { gt: 0 },
     ...(opts.country ? { country: opts.country } : {}),
     ...(opts.state ? { state: opts.state } : {}),
   };

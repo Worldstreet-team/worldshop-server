@@ -392,6 +392,10 @@ export async function getConversation(
  * silently once anything is deleted or backfilled. Threads the vendor has not
  * yet replied to count against the rate — that is the honest reading of "how
  * likely is this seller to answer me".
+ *
+ * The reply time is the median first reply, not the mean: "usually replies
+ * in" is the typical case, and with a mean one reply sent a month late made
+ * a seller who answers within the hour read as "~33 days".
  */
 export async function recomputeStoreResponseMetrics(storeId: string) {
   const threads = await prisma.conversation.findMany({
@@ -410,13 +414,12 @@ export async function recomputeStoreResponseMetrics(storeId: string) {
   const replied = threads.filter((t) => t.vendorFirstReplyAt);
   const responseRate = replied.length / threads.length;
 
-  const avgResponseMins = replied.length
-    ? Math.round(
-        replied.reduce(
-          (sum, t) => sum + (t.vendorFirstReplyAt!.getTime() - t.createdAt.getTime()) / 60_000,
-          0,
-        ) / replied.length,
-      )
+  const delays = replied
+    .map((t) => (t.vendorFirstReplyAt!.getTime() - t.createdAt.getTime()) / 60_000)
+    .sort((a, b) => a - b);
+  const mid = Math.floor(delays.length / 2);
+  const avgResponseMins = delays.length
+    ? Math.round(delays.length % 2 ? delays[mid] : (delays[mid - 1] + delays[mid]) / 2)
     : null;
 
   await prisma.store.update({
